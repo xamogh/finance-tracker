@@ -1,0 +1,22 @@
+<svg width="420" height="230" viewBox="0 0 420 230" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M44 194C75 154 46 91 109 77C152 67 164 22 214 20C264 18 278 68 322 69C375 70 381 131 350 164C328 188 295 196 218 197C139 198 69 205 44 194Z" fill="#FCECE4"/>
+  <ellipse cx="212" cy="203" rx="178" ry="13" fill="#F3DCCE"/>
+  <path d="M117 70C110 107 116 145 122 177" stroke="#7E8B80" stroke-width="7" stroke-linecap="round"/>
+  <path d="M105 88C82 76 72 57 76 37M105 103C83 96 71 100 60 115M121 108C143 97 153 82 153 62M122 128C145 124 158 130 171 144M116 149C97 147 84 154 75 170" stroke="#7E8B80" stroke-width="6" stroke-linecap="round"/>
+  <path d="M91 174H145L137 206H99L91 174Z" fill="#D5AC95"/>
+  <path d="M92 174H145" stroke="#B78972" stroke-width="7" stroke-linecap="round"/>
+  <rect x="181" y="54" width="104" height="141" rx="5" fill="#D6B298"/>
+  <rect x="194" y="68" width="78" height="113" rx="3" fill="#FFEAE0"/>
+  <path d="M216 97C220 83 237 79 246 91C260 85 276 96 274 112C271 140 252 154 238 163C225 153 209 133 216 97Z" fill="#26303B"/>
+  <path d="M238 107C226 108 218 121 219 139C220 154 229 165 240 165C252 165 260 153 260 138C260 120 251 106 238 107Z" fill="#EFAC8D"/>
+  <path d="M261 116C249 117 240 130 241 146C242 160 252 169 263 169C275 169 282 157 281 143C280 126 273 115 261 116Z" fill="#D99476"/>
+  <path d="M220 139C214 151 207 164 201 181H244C240 160 234 145 220 139Z" fill="#6F8792"/>
+  <path d="M263 146C253 152 246 164 242 181H287C284 163 277 151 263 146Z" fill="#806C62"/>
+  <path d="M231 95C219 91 211 98 209 109C219 105 231 107 238 114C243 103 240 97 231 95Z" fill="#2A3037"/>
+  <path d="M261 106C251 102 243 108 239 118C251 115 261 120 268 130C275 119 271 110 261 106Z" fill="#303038"/>
+  <rect x="306" y="120" width="43" height="78" rx="13" fill="#E8D4C6"/>
+  <rect x="311" y="104" width="33" height="15" rx="7.5" fill="#F2E5DD"/>
+  <path d="M319 104C321 90 335 89 337 104" stroke="#A5A99F" stroke-width="5" stroke-linecap="round"/>
+  <rect x="314" y="125" width="29" height="63" rx="9" fill="#F9EFE8"/>
+</svg>
+
