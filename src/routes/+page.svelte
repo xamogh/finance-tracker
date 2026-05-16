@@ -129,6 +129,16 @@
     if (tab === 'expenses') addPanelOpen = true;
   }
 
+  function openExpensePanel() {
+    if (!auth.signedIn && auth.clerkReady) {
+      auth.signIn();
+      return;
+    }
+
+    activeTab = 'expenses';
+    addPanelOpen = true;
+  }
+
   async function saveExpense(addAnother = false) {
     if (!draft.note || !draft.category || !draft.amount) return;
     await convex.mutation(api.finance.addExpense, {
@@ -211,23 +221,11 @@
         May 2025
         <ChevronDown size={18} />
       </button>
-      {#if auth.signedIn}
-        <button class="ghost-user" type="button" onclick={auth.signOut}>{auth.userName || 'Signed in'}</button>
-      {:else}
-        <button class="ghost-user" type="button" onclick={auth.signIn}>Sign in</button>
-      {/if}
-      <button class="add-button" type="button" onclick={() => { activeTab = 'expenses'; addPanelOpen = true; }}>
+      <button class="add-button" type="button" onclick={openExpensePanel}>
         <Plus size={21} /> Add Expense
       </button>
     </div>
   </header>
-
-  {#if !auth.signedIn}
-    <div class="setup-strip">
-      <strong>{auth.clerkReady ? 'Sign in to sync your household ledger.' : 'Clerk is not configured yet.'}</strong>
-      <span>Set Clerk values in `.env.local`, then Convex will seed this shared dashboard for both users.</span>
-    </div>
-  {/if}
 
   {#if activeTab === 'overview'}
     <main class="page-grid overview-grid">
@@ -365,7 +363,11 @@
 
           <label class="field">
             <span>Date</span>
-            <div class="input-like"><CalendarDays size={20} /><input bind:value={draft.date} type="date" /></div>
+            <button class="input-like date-button" type="button">
+              <CalendarDays size={20} />
+              <span>{dayLabel(draft.date, true)}</span>
+              <ChevronDown size={18} />
+            </button>
           </label>
 
           <label class="field">
@@ -413,7 +415,7 @@
 
       <section class="panel metric-strip">
         {@render Metric({ label: 'Total Spent', value: money(spent), note: '$341.25 less than April', good: true })}
-        {@render Metric({ label: 'Categories Used', value: String(categoryTotals.length), note: '2 new this month' })}
+        {@render Metric({ label: 'Categories Used', value: String(liveCategories.length), note: '2 new this month' })}
         {@render Metric({ label: 'On Budget', value: String(liveBudgets.length - overBudget.length), note: '62% of categories', good: true })}
         {@render Metric({ label: 'Over Budget', value: String(overBudget.length), note: '38% of categories', warn: true })}
       </section>

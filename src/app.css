@@ -141,15 +141,6 @@ button {
   font-size: 18px;
 }
 
-.ghost-user {
-  max-width: 150px;
-  min-width: 104px;
-  border-color: var(--line);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 .add-button,
 .save-button {
   border: 0;
@@ -168,23 +159,6 @@ button {
   box-shadow: 0 12px 26px rgba(255, 98, 95, 0.28);
 }
 
-.setup-strip {
-  margin: 18px 26px 0;
-  min-height: 54px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  border: 1px solid #ffe1d7;
-  background: #fff5ef;
-  color: #724134;
-  border-radius: 12px;
-  padding: 0 18px;
-}
-
-.setup-strip span {
-  color: #88665e;
-}
-
 .page-grid {
   display: grid;
   gap: 24px;
@@ -192,13 +166,12 @@ button {
 }
 
 .overview-grid {
-  grid-template-columns: 1.47fr 1.07fr;
+  grid-template-columns: minmax(420px, 0.67fr) minmax(438px, 0.7fr) minmax(620px, 1fr);
   grid-template-areas:
-    "hero recent"
-    "cat recent"
-    "cat budget"
-    "trend budget"
-    "team team";
+    "hero hero recent"
+    "cat trend recent"
+    "cat trend budget"
+    "team team team";
 }
 
 .hero-panel,
@@ -876,6 +849,17 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.date-button {
+  justify-content: flex-start;
+  color: #1f2433;
+}
+
+.date-button span {
+  flex: 1;
+  text-align: left;
+  color: #1f2433;
 }
 
 .input-like input {
