@@ -34,16 +34,16 @@ const DEMO_EXPENSES = [
   ['2025-05-13', 'Coffee', 'groceries', 'me', 475],
   ['2025-05-12', 'Movie night', 'dining-out', 'wife', 3200],
   ['2025-05-11', 'Gas', 'transport', 'me', 3820],
-  ['2025-05-10', 'Concert tickets', 'entertainment', 'wife', 8545],
-  ['2025-05-09', 'Home supplies', 'misc', 'me', 14822],
-  ['2025-05-08', 'Lunch', 'dining-out', 'me', 2875],
-  ['2025-05-07', 'Books', 'personal', 'wife', 6320],
-  ['2025-05-06', 'Groceries', 'groceries', 'wife', 18530],
-  ['2025-05-05', 'Parking', 'transport', 'me', 1240],
-  ['2025-05-04', 'Takeout', 'dining-out', 'wife', 7650],
-  ['2025-05-03', 'Farmers market', 'groceries', 'me', 2311],
-  ['2025-05-02', 'Rideshare', 'transport', 'wife', 8450],
-  ['2025-05-01', 'Brunch', 'dining-out', 'me', 11147]
+  ['2025-05-10', 'Costco haul', 'groceries', 'wife', 41000],
+  ['2025-05-09', 'Farmers market', 'groceries', 'me', 33331],
+  ['2025-05-08', 'Takeout', 'dining-out', 'wife', 7650],
+  ['2025-05-07', 'Brunch', 'dining-out', 'me', 11147],
+  ['2025-05-06', 'Date night', 'dining-out', 'wife', 25675],
+  ['2025-05-05', 'Train passes', 'transport', 'wife', 10360],
+  ['2025-05-04', 'Car service', 'transport', 'me', 20820],
+  ['2025-05-03', 'Internet bill', 'utilities', 'wife', 17480],
+  ['2025-05-02', 'Clothes', 'shopping', 'wife', 18864],
+  ['2025-05-01', 'Home supplies', 'misc', 'me', 14822]
 ] as const;
 
 export const ensureCurrentUser = mutation({
