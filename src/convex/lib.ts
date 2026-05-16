@@ -35,6 +35,19 @@ export function assertAllowedEmail(email: string) {
   }
 }
 
+export function memberKeyForEmail(email: string, existingMemberCount: number) {
+  const allowed = (process.env.ALLOWED_USER_EMAILS ?? '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const configuredIndex = allowed.indexOf(email);
+
+  if (configuredIndex === 0) return 'me';
+  if (configuredIndex === 1) return 'wife';
+
+  return existingMemberCount === 0 ? 'me' : 'wife';
+}
+
 export async function getCurrentMembership(ctx: QueryCtx | MutationCtx) {
   const identity = await requireIdentity(ctx);
   const user = await ctx.db
@@ -95,4 +108,3 @@ export async function categoryBySlug(
     .withIndex('by_household_slug', (q) => q.eq('householdId', householdId).eq('slug', slug))
     .unique();
 }
-

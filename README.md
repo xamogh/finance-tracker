@@ -5,7 +5,7 @@ A SvelteKit + Convex household finance tracker for two partners to log and revie
 ## Stack
 
 - SvelteKit for the UI
-- Convex for reactive data, mutations, schema, and seed data
+- Convex for reactive data, mutations, schema, and household records
 - Clerk for authentication
 
 ## Local Setup
@@ -23,3 +23,4 @@ npx convex dev
 
 Clerk should have a JWT template named `convex`, and the Convex deployment should receive `CLERK_JWT_ISSUER_DOMAIN`.
 
+On first sign-in, the app creates the household and starter categories only. Expenses and budget amounts are created from real user actions.

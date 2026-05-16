@@ -1,7 +1,14 @@
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { mutation, query } from './_generated/server';
-import { assertAllowedEmail, categoryBySlug, ensureHousehold, requireIdentity, requireMembership } from './lib';
+import {
+  assertAllowedEmail,
+  categoryBySlug,
+  ensureHousehold,
+  memberKeyForEmail,
+  requireIdentity,
+  requireMembership
+} from './lib';
 
 const DEFAULT_CATEGORIES = [
   { name: 'Groceries', slug: 'groceries', icon: 'shopping-cart', color: '#51bf7f', sortOrder: 1 },
@@ -14,37 +21,25 @@ const DEFAULT_CATEGORIES = [
   { name: 'Personal', slug: 'personal', icon: 'user', color: '#20a7b8', sortOrder: 8 }
 ];
 
-const DEFAULT_BUDGETS: Record<string, number> = {
-  groceries: 90000,
-  'dining-out': 60000,
-  transport: 40000,
-  utilities: 30000,
-  shopping: 20000,
-  entertainment: 15000,
-  misc: 10000,
-  personal: 10000
-};
+const TREND_MONTHS = 6;
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const DEMO_EXPENSES = [
-  ['2025-05-18', 'Whole Foods run', 'groceries', 'wife', 8764],
-  ['2025-05-17', 'Dinner at Basta', 'dining-out', 'me', 6350],
-  ['2025-05-16', 'Uber to Airport', 'transport', 'me', 4218],
-  ['2025-05-15', 'Electricity Bill', 'utilities', 'wife', 12000],
-  ['2025-05-14', 'Amazon order', 'shopping', 'wife', 5899],
-  ['2025-05-13', 'Coffee', 'groceries', 'me', 475],
-  ['2025-05-12', 'Movie night', 'dining-out', 'wife', 3200],
-  ['2025-05-11', 'Gas', 'transport', 'me', 3820],
-  ['2025-05-10', 'Costco haul', 'groceries', 'wife', 41000],
-  ['2025-05-09', 'Farmers market', 'groceries', 'me', 33331],
-  ['2025-05-08', 'Takeout', 'dining-out', 'wife', 7650],
-  ['2025-05-07', 'Brunch', 'dining-out', 'me', 11147],
-  ['2025-05-06', 'Date night', 'dining-out', 'wife', 25675],
-  ['2025-05-05', 'Train passes', 'transport', 'wife', 10360],
-  ['2025-05-04', 'Car service', 'transport', 'me', 20820],
-  ['2025-05-03', 'Internet bill', 'utilities', 'wife', 17480],
-  ['2025-05-02', 'Clothes', 'shopping', 'wife', 18864],
-  ['2025-05-01', 'Home supplies', 'misc', 'me', 14822]
-] as const;
+function monthWindow(month: string) {
+  const [year, monthIndex] = month.split('-').map(Number);
+  const target = new Date(Date.UTC(year, monthIndex - 1, 1));
+  const months: { month: string; label: string }[] = [];
+
+  for (let offset = TREND_MONTHS - 1; offset >= 0; offset -= 1) {
+    const date = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() - offset, 1));
+    const monthValue = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    months.push({
+      month: monthValue,
+      label: `${MONTH_NAMES[date.getUTCMonth()]} '${String(date.getUTCFullYear()).slice(2)}`
+    });
+  }
+
+  return months;
+}
 
 export const ensureCurrentUser = mutation({
   args: {},
@@ -97,7 +92,7 @@ export const ensureCurrentUser = mutation({
         householdId,
         userId: user._id,
         email: identity.email,
-        memberKey: existingMembers.some((member) => member.memberKey === 'me') ? 'wife' : 'me',
+        memberKey: memberKeyForEmail(identity.email, existingMembers.length),
         createdAt: Date.now()
       });
     }
@@ -106,10 +101,10 @@ export const ensureCurrentUser = mutation({
   }
 });
 
-export const seedDemoData = mutation({
+export const setupHouseholdCategories = mutation({
   args: {},
   handler: async (ctx) => {
-    const { user, membership } = await requireMembership(ctx);
+    const { membership } = await requireMembership(ctx);
     const now = Date.now();
 
     const categories = new Map<string, Id<'categories'>>();
@@ -126,56 +121,6 @@ export const seedDemoData = mutation({
         createdAt: now
       });
       categories.set(category.slug, categoryId);
-    }
-
-    const existingBudgets = await ctx.db
-      .query('budgets')
-      .withIndex('by_household_month', (q) => q.eq('householdId', membership.householdId).eq('month', '2025-05'))
-      .collect();
-
-    if (existingBudgets.length === 0) {
-      for (const [slug, amountCents] of Object.entries(DEFAULT_BUDGETS)) {
-        const categoryId = categories.get(slug);
-        if (!categoryId) continue;
-
-        await ctx.db.insert('budgets', {
-          householdId: membership.householdId,
-          categoryId,
-          month: '2025-05',
-          amountCents,
-          createdAt: now
-        });
-      }
-    }
-
-    const existingExpenses = await ctx.db
-      .query('expenses')
-      .withIndex('by_household_date', (q) => q.eq('householdId', membership.householdId))
-      .take(1);
-
-    if (existingExpenses.length === 0) {
-      const members = await ctx.db
-        .query('memberships')
-        .withIndex('by_household', (q) => q.eq('householdId', membership.householdId))
-        .collect();
-      const me = members.find((member) => member.memberKey === 'me')?.userId ?? user._id;
-      const wife = members.find((member) => member.memberKey === 'wife')?.userId ?? user._id;
-
-      for (const [date, note, slug, memberKey, amountCents] of DEMO_EXPENSES) {
-        const categoryId = categories.get(slug);
-        if (!categoryId) continue;
-
-        await ctx.db.insert('expenses', {
-          householdId: membership.householdId,
-          categoryId,
-          paidByUserId: memberKey === 'me' ? me : wife,
-          date,
-          note,
-          amountCents,
-          createdByUserId: user._id,
-          createdAt: now
-        });
-      }
     }
 
     return { ok: true };
@@ -207,10 +152,36 @@ export const dashboard = query({
 
     const monthExpenses = expenses.filter((expense) => expense.date.startsWith(args.month));
     const memberLookup = new Map(members.map((member) => [member.userId, member.memberKey]));
+    const months = monthWindow(args.month);
+    const monthlyTotals = new Map(months.map(({ month }) => [month, 0]));
+    const categoryTrend = new Map(categories.map((category) => [category.slug, months.map(() => 0)]));
+
+    for (const expense of expenses) {
+      const expenseMonth = expense.date.slice(0, 7);
+      if (!monthlyTotals.has(expenseMonth)) continue;
+
+      const amount = expense.amountCents / 100;
+      monthlyTotals.set(expenseMonth, Number(((monthlyTotals.get(expenseMonth) ?? 0) + amount).toFixed(2)));
+
+      const category = categories.find((item) => item._id === expense.categoryId);
+      if (!category) continue;
+
+      const monthIndex = months.findIndex((item) => item.month === expenseMonth);
+      const categoryPoints = categoryTrend.get(category.slug);
+      if (!categoryPoints || monthIndex < 0) continue;
+
+      categoryPoints[monthIndex] = Number((categoryPoints[monthIndex] + amount).toFixed(2));
+    }
 
     return {
       categories,
       budgets,
+      trend: months.map(({ month, label }) => ({
+        month,
+        label,
+        amount: monthlyTotals.get(month) ?? 0
+      })),
+      categoryTrend: Object.fromEntries(categoryTrend),
       expenses: monthExpenses
         .sort((a, b) => b.date.localeCompare(a.date))
         .map((expense) => ({
@@ -254,5 +225,58 @@ export const addExpense = mutation({
       createdByUserId: user._id,
       createdAt: Date.now()
     });
+  }
+});
+
+export const upsertBudget = mutation({
+  args: {
+    month: v.string(),
+    categorySlug: v.string(),
+    amountCents: v.number()
+  },
+  handler: async (ctx, args) => {
+    const { membership } = await requireMembership(ctx);
+    const amountCents = Math.round(args.amountCents);
+
+    if (!/^\d{4}-\d{2}$/.test(args.month)) {
+      throw new Error('Budget month must use YYYY-MM format.');
+    }
+
+    if (amountCents < 0) {
+      throw new Error('Budget amount cannot be negative.');
+    }
+
+    const category = await categoryBySlug(ctx, membership.householdId, args.categorySlug);
+
+    if (!category) {
+      throw new Error('Unknown budget category.');
+    }
+
+    const existing = await ctx.db
+      .query('budgets')
+      .withIndex('by_category_month', (q) => q.eq('categoryId', category._id).eq('month', args.month))
+      .unique();
+
+    if (amountCents === 0) {
+      if (existing) {
+        await ctx.db.delete(existing._id);
+      }
+      return { ok: true };
+    }
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { amountCents });
+      return { ok: true };
+    }
+
+    await ctx.db.insert('budgets', {
+      householdId: membership.householdId,
+      categoryId: category._id,
+      month: args.month,
+      amountCents,
+      createdAt: Date.now()
+    });
+
+    return { ok: true };
   }
 });

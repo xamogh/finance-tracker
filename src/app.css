@@ -159,6 +159,41 @@ button {
   box-shadow: 0 12px 26px rgba(255, 98, 95, 0.28);
 }
 
+.add-button:disabled,
+.save-button:disabled,
+.secondary-save:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  box-shadow: none;
+}
+
+.notice-strip {
+  margin: 20px 26px 0;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid #f2dfd9;
+  background: rgba(255, 249, 246, 0.92);
+  border-radius: 13px;
+  color: #3d2f2a;
+  padding: 0 17px;
+}
+
+.notice-strip span {
+  color: #74665f;
+}
+
+.inline-action {
+  border: 1px solid #f3cac4;
+  background: #fff;
+  color: var(--accent-dark);
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 14px;
+  font-weight: 680;
+}
+
 .page-grid {
   display: grid;
   gap: 24px;
@@ -227,6 +262,10 @@ button {
 
 .delta strong {
   color: #2ea87e;
+}
+
+.delta:not(.positive) strong {
+  color: var(--accent-dark);
 }
 
 .panel {
@@ -426,6 +465,48 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.empty-state {
+  min-height: 170px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  text-align: center;
+  color: #6f7582;
+  padding: 24px;
+}
+
+.empty-state strong {
+  color: #1e2332;
+  font-size: 16px;
+}
+
+.empty-state p {
+  max-width: 310px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.loading-rows {
+  display: grid;
+  gap: 14px;
+  padding: 8px 0;
+}
+
+.loading-rows span {
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #f2efec 0%, #faf8f6 45%, #f2efec 100%);
+  background-size: 220% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position-x: -220%;
+  }
 }
 
 .donut-layout {
@@ -701,6 +782,34 @@ button {
   background: #fffdfa;
 }
 
+.select-control {
+  position: relative;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdfa;
+}
+
+.select-control select {
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: #1f2433;
+  padding: 0 38px 0 17px;
+  outline: 0;
+}
+
+.select-control svg {
+  position: absolute;
+  right: 14px;
+  pointer-events: none;
+  color: #5d6372;
+}
+
 .filter-chip {
   border: 0;
   min-height: 38px;
@@ -800,6 +909,19 @@ button {
   padding: 34px 27px;
 }
 
+.budget-drawer {
+  position: fixed;
+  z-index: 30;
+  top: 91px;
+  right: 0;
+  width: 398px;
+  min-height: calc(100vh - 91px);
+  background: rgba(255, 255, 255, 0.96);
+  border-left: 1px solid var(--line);
+  box-shadow: -18px 0 46px rgba(24, 20, 18, 0.11);
+  padding: 34px 27px;
+}
+
 .drawer-head {
   display: flex;
   align-items: center;
@@ -856,10 +978,15 @@ button {
   color: #1f2433;
 }
 
-.date-button span {
+.date-button input {
   flex: 1;
-  text-align: left;
   color: #1f2433;
+  background: transparent;
+}
+
+.date-button input::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  position: absolute;
 }
 
 .input-like input {
@@ -908,6 +1035,19 @@ button {
   border-radius: 9px;
   font-size: 17px;
   font-weight: 560;
+}
+
+.form-error {
+  margin: -8px 0 0;
+  color: var(--accent-dark);
+  font-size: 14px;
+}
+
+.form-helper {
+  margin: -12px 0 0;
+  color: #828793;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .categories-grid {
@@ -1070,6 +1210,11 @@ button {
   font-weight: 680;
 }
 
+.muted-cell,
+.empty-copy {
+  color: #9ca1ad;
+}
+
 .status-pill {
   color: #2ca66c;
   background: #e9f8ef;
@@ -1078,6 +1223,25 @@ button {
 .status-pill.over {
   color: #ff583f;
   background: #fff0e9;
+}
+
+.status-pill.unset {
+  color: #747b89;
+  background: #f2f3f5;
+}
+
+.table-link {
+  min-height: 30px;
+  border: 1px solid #e8e1dd;
+  border-radius: 7px;
+  background: #fffdfa;
+  color: #1f6fd8;
+  padding: 0 12px;
+  font-weight: 680;
+}
+
+.trend-empty {
+  grid-column: 1 / -1;
 }
 
 .line-trend {

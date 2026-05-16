@@ -21,7 +21,7 @@
   async function syncUser() {
     try {
       await convex.mutation(api.finance.ensureCurrentUser, {});
-      await convex.mutation(api.finance.seedDemoData, {});
+      await convex.mutation(api.finance.setupHouseholdCategories, {});
     } catch (error) {
       console.warn('Convex user sync failed', error);
     }
