@@ -15,7 +15,7 @@
     "@clerk/clerk-js": "^6.11.1",
     "convex": "^1.39.1",
     "convex-svelte": "^0.0.12",
-    "lucide-svelte": "^1.0.1"
+    "@lucide/svelte": "^1.16.0"
   },
   "devDependencies": {
     "@sveltejs/adapter-auto": "^7.0.1",
