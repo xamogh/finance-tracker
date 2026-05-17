@@ -680,7 +680,7 @@
       </section>
     </main>
   {:else}
-    <main class="page-grid categories-grid">
+    <main class="page-grid budgets-grid">
       <section class="hero-panel category-hero">
         <div>
           <h1>Budgets</h1>

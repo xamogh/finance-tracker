@@ -23,7 +23,6 @@
 
 body {
   margin: 0;
-  min-width: 1180px;
   min-height: 100vh;
   background:
     radial-gradient(circle at 7% 0%, rgba(255, 118, 101, 0.07), transparent 28%),
@@ -48,9 +47,9 @@ button {
 .topbar {
   height: 91px;
   display: grid;
-  grid-template-columns: 310px 1fr auto;
+  grid-template-columns: minmax(260px, 310px) 1fr auto;
   align-items: center;
-  gap: 24px;
+  gap: 20px;
   padding: 0 26px;
   background: rgba(255, 255, 255, 0.83);
   border-bottom: 1px solid var(--line);
@@ -91,7 +90,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 26px;
+  gap: 18px;
 }
 
 .main-nav button,
@@ -118,8 +117,9 @@ button {
 
 .main-nav button {
   font-size: 16px;
-  min-width: 146px;
+  min-width: 118px;
   font-weight: 560;
+  white-space: nowrap;
 }
 
 .main-nav button.active {
@@ -139,6 +139,7 @@ button {
   border-color: var(--line);
   background: rgba(255, 255, 255, 0.75);
   font-size: 18px;
+  white-space: nowrap;
 }
 
 .add-button,
@@ -157,6 +158,7 @@ button {
   font-size: 17px;
   font-weight: 690;
   box-shadow: 0 12px 26px rgba(255, 98, 95, 0.28);
+  white-space: nowrap;
 }
 
 .add-button:disabled,
@@ -201,7 +203,7 @@ button {
 }
 
 .overview-grid {
-  grid-template-columns: minmax(420px, 0.67fr) minmax(438px, 0.7fr) minmax(620px, 1fr);
+  grid-template-columns: minmax(0, 0.67fr) minmax(0, 0.7fr) minmax(390px, 1fr);
   grid-template-areas:
     "hero hero recent"
     "cat trend recent"
@@ -223,14 +225,14 @@ button {
   grid-area: hero;
   min-height: 244px;
   display: grid;
-  grid-template-columns: 1fr 390px;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 390px);
   align-items: center;
   overflow: hidden;
   padding: 34px 38px;
 }
 
 .hero-panel img {
-  width: 380px;
+  width: min(380px, 100%);
   justify-self: end;
   transform: translateY(8px);
 }
@@ -710,6 +712,10 @@ button {
   min-height: calc(100vh - 91px);
 }
 
+.app-shell:not(.drawer-mode) .expenses-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .expenses-workspace {
   padding: 34px 49px 24px;
 }
@@ -1058,6 +1064,21 @@ button {
     "share line strong";
 }
 
+.budgets-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(330px, 0.65fr);
+  grid-template-areas:
+    "hero hero"
+    "tracking pressure";
+}
+
+.budgets-grid .tracking-panel {
+  grid-area: tracking;
+}
+
+.budgets-grid .line-card {
+  grid-area: pressure;
+}
+
 .category-hero {
   grid-area: hero;
   min-height: 142px;
@@ -1263,14 +1284,28 @@ button {
 }
 
 @media (max-width: 1300px) {
-  body {
-    min-width: 0;
+  .topbar {
+    grid-template-columns: minmax(210px, 260px) minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 0 22px;
   }
 
-  .topbar,
-  .overview-grid,
-  .categories-grid,
-  .expenses-layout {
-    min-width: 1180px;
+  .brand {
+    gap: 12px;
+    font-size: 21px;
+  }
+
+  .main-nav {
+    gap: 8px;
+  }
+
+  .main-nav button,
+  .month-button {
+    padding: 0 14px;
+  }
+
+  .add-button {
+    min-width: 172px;
+    padding: 0 20px;
   }
 }
