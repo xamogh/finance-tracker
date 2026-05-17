@@ -88,12 +88,13 @@
     amount: ''
   });
 
-  const backendUnavailable = $derived(!auth.backendReady);
-  const clerkUnavailable = $derived(auth.backendReady && !auth.clerkReady);
-  const signedOut = $derived(auth.backendReady && auth.clerkReady && !auth.signedIn);
+  const authInitializing = $derived(!auth.initialized);
+  const backendUnavailable = $derived(auth.initialized && !auth.backendReady);
+  const clerkUnavailable = $derived(auth.initialized && auth.backendReady && !auth.clerkReady);
+  const signedOut = $derived(auth.initialized && auth.backendReady && auth.clerkReady && !auth.signedIn);
   const isLoadingDashboard = $derived(auth.signedIn && dashboard.isLoading);
   const dashboardError = $derived(dashboard.error?.message ?? '');
-  const hasNotice = $derived(backendUnavailable || clerkUnavailable || !!dashboardError);
+  const hasNotice = $derived(!!dashboardError);
 
   const liveCategories = $derived.by<Category[]>(() => {
     if (!dashboard.data?.categories) return [];
@@ -388,6 +389,46 @@
 
 <svelte:window onkeydown={handleKey} />
 
+{#if authInitializing}
+  <main class="auth-screen">
+    <section class="auth-panel">
+      <span class="auth-mark"><Wallet size={26} /></span>
+      <p class="auth-eyebrow">Household finance</p>
+      <h1>Preparing Ledger</h1>
+      <p>Checking your Clerk session and Convex connection.</p>
+    </section>
+  </main>
+{:else if backendUnavailable}
+  <main class="auth-screen">
+    <section class="auth-panel">
+      <span class="auth-mark warn"><AlertCircle size={26} /></span>
+      <p class="auth-eyebrow">Setup required</p>
+      <h1>Connect Convex</h1>
+      <p>Set <code>PUBLIC_CONVEX_URL</code> and start Convex to enable live household finance data.</p>
+    </section>
+  </main>
+{:else if clerkUnavailable}
+  <main class="auth-screen">
+    <section class="auth-panel">
+      <span class="auth-mark warn"><AlertCircle size={26} /></span>
+      <p class="auth-eyebrow">Setup required</p>
+      <h1>Connect Clerk</h1>
+      <p>Set <code>PUBLIC_CLERK_PUBLISHABLE_KEY</code> to enable sign-in before the tracker loads.</p>
+    </section>
+  </main>
+{:else if signedOut}
+  <main class="auth-screen">
+    <section class="auth-panel">
+      <span class="auth-mark"><Wallet size={26} /></span>
+      <p class="auth-eyebrow">Household finance</p>
+      <h1>Sign in to open Ledger</h1>
+      <p>Your expenses, budgets, categories and trends are private until Clerk authenticates you.</p>
+      <button class="primary-button auth-cta" type="button" onclick={auth.signIn}>
+        <LogIn size={16} /> Sign in with Clerk
+      </button>
+    </section>
+  </main>
+{:else}
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">
@@ -450,11 +491,11 @@
           <span>{currentMonthLabel}</span>
         </div>
         {#if activeTab === 'budgets'}
-          <button class="primary-button" type="button" onclick={() => openBudgetPanel()} disabled={backendUnavailable || clerkUnavailable}>
+          <button class="primary-button" type="button" onclick={() => openBudgetPanel()}>
             <Target size={15} /> Set budget
           </button>
         {:else}
-          <button class="primary-button" type="button" onclick={openExpensePanel} disabled={backendUnavailable || clerkUnavailable}>
+          <button class="primary-button" type="button" onclick={openExpensePanel}>
             <Plus size={15} /> Add expense
           </button>
         {/if}
@@ -480,30 +521,7 @@
     {/if}
 
     <div class="page-body">
-      {#if backendUnavailable || clerkUnavailable}
-        <section class="signed-out card">
-          <div class="signed-out-icon"><AlertCircle size={26} /></div>
-          <h2>{backendUnavailable ? 'Connect Convex' : 'Connect Clerk'}</h2>
-          <p>
-            {backendUnavailable
-              ? 'Set PUBLIC_CONVEX_URL and start Convex to enable live data sync.'
-              : 'Set PUBLIC_CLERK_PUBLISHABLE_KEY to enable sign-in and authenticated finance data.'}
-          </p>
-        </section>
-      {:else if signedOut}
-        <section class="signed-out card">
-          <div class="signed-out-icon"><Wallet size={26} /></div>
-          <h2>Track household spending</h2>
-          <p>Sign in with Clerk to see your live ledger, categories and monthly budgets, all synced through Convex.</p>
-          {#if auth.clerkReady}
-            <button class="primary-button" type="button" onclick={auth.signIn}>
-              <LogIn size={15} /> Sign in to continue
-            </button>
-          {:else}
-            <p class="muted">Authentication is unavailable. Configure Clerk to enable sign-in.</p>
-          {/if}
-        </section>
-      {:else if isLoadingDashboard && !dashboard.data}
+      {#if isLoadingDashboard && !dashboard.data}
         {@render LoadingState()}
       {:else if activeTab === 'overview'}
         {@render OverviewBlock()}
@@ -629,6 +647,7 @@
     </div>
   {/if}
 </div>
+{/if}
 
 <!-- ----- Page blocks ----- -->
 

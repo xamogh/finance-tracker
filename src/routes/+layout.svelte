@@ -32,6 +32,7 @@
     const publishableKey = env.PUBLIC_CLERK_PUBLISHABLE_KEY;
 
     if (!publishableKey) {
+      auth.initialized = true;
       return;
     }
 
@@ -57,6 +58,7 @@
 
     clerk.addListener(updateAuthState);
     updateAuthState();
+    auth.initialized = true;
 
     if (auth.signedIn) {
       await syncUser();

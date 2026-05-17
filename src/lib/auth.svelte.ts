@@ -1,4 +1,5 @@
 export type AuthState = {
+  initialized: boolean;
   backendReady: boolean;
   clerkReady: boolean;
   signedIn: boolean;
@@ -12,6 +13,7 @@ export const AUTH_CONTEXT = Symbol('shared-spending-auth');
 
 export function createAuthState(): AuthState {
   return {
+    initialized: false,
     backendReady: false,
     clerkReady: false,
     signedIn: false,
@@ -21,4 +23,3 @@ export function createAuthState(): AuthState {
     signOut: () => undefined
   };
 }
-
