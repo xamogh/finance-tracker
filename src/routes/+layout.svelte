@@ -46,8 +46,16 @@
       auth.userEmail = clerk.user?.primaryEmailAddress?.emailAddress || '';
     };
 
-    auth.signIn = () => clerk.openSignIn();
-    auth.signOut = () => clerk.signOut();
+    auth.signIn = () => {
+      void clerk.redirectToSignIn({
+        redirectUrl: window.location.href,
+        signInFallbackRedirectUrl: window.location.href,
+        signUpFallbackRedirectUrl: window.location.href
+      });
+    };
+    auth.signOut = () => {
+      void clerk.signOut({ redirectUrl: window.location.origin });
+    };
 
     convex.setAuth(async () => {
       return (await clerk.session?.getToken({ template: 'convex' })) ?? null;
