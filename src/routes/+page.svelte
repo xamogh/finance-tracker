@@ -25,6 +25,7 @@
     Target,
     Ticket,
     User,
+    UserPlus,
     Utensils,
     Wallet,
     X,
@@ -422,10 +423,15 @@
       <span class="auth-mark"><Wallet size={26} /></span>
       <p class="auth-eyebrow">Household finance</p>
       <h1>Sign in to open Ledger</h1>
-      <p>Your expenses, budgets, categories and trends are private until Clerk authenticates you.</p>
-      <button class="primary-button auth-cta" type="button" onclick={auth.signIn}>
-        <LogIn size={16} /> Sign in with Clerk
-      </button>
+      <p>Create your account first, then sign in any time after that. Only approved household emails can open the tracker.</p>
+      <div class="auth-actions">
+        <button class="primary-button auth-cta" type="button" onclick={auth.signUp}>
+          <UserPlus size={16} /> Create account
+        </button>
+        <button class="ghost-button auth-cta" type="button" onclick={auth.signIn}>
+          <LogIn size={16} /> Sign in
+        </button>
+      </div>
     </section>
   </main>
 {:else}

@@ -53,6 +53,13 @@
         signUpFallbackRedirectUrl: window.location.href
       });
     };
+    auth.signUp = () => {
+      void clerk.redirectToSignUp({
+        redirectUrl: window.location.href,
+        signInFallbackRedirectUrl: window.location.href,
+        signUpFallbackRedirectUrl: window.location.href
+      });
+    };
     auth.signOut = () => {
       void clerk.signOut({ redirectUrl: window.location.origin });
     };

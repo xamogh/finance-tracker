@@ -6,6 +6,7 @@ export type AuthState = {
   userName: string;
   userEmail: string;
   signIn: () => void;
+  signUp: () => void;
   signOut: () => void;
 };
 
@@ -20,6 +21,7 @@ export function createAuthState(): AuthState {
     userName: '',
     userEmail: '',
     signIn: () => undefined,
+    signUp: () => undefined,
     signOut: () => undefined
   };
 }
