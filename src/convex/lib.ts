@@ -1,6 +1,8 @@
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 
+import { convexEnv } from './env';
+
 const HOUSEHOLD_SLUG = 'shared-spending';
 
 export async function requireIdentity(ctx: QueryCtx | MutationCtx) {
@@ -24,11 +26,15 @@ export async function requireIdentity(ctx: QueryCtx | MutationCtx) {
   };
 }
 
-export function assertAllowedEmail(email: string) {
-  const allowed = (process.env.ALLOWED_USER_EMAILS ?? '')
+function allowedEmails() {
+  return (convexEnv('ALLOWED_USER_EMAILS') ?? '')
     .split(',')
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
+}
+
+export function assertAllowedEmail(email: string) {
+  const allowed = allowedEmails();
 
   if (allowed.length > 0 && !allowed.includes(email)) {
     throw new Error('This email is not allowed for this household.');
@@ -36,10 +42,7 @@ export function assertAllowedEmail(email: string) {
 }
 
 export function memberKeyForEmail(email: string, existingMemberCount: number) {
-  const allowed = (process.env.ALLOWED_USER_EMAILS ?? '')
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
+  const allowed = allowedEmails();
   const configuredIndex = allowed.indexOf(email);
 
   if (configuredIndex === 0) return 'me';
