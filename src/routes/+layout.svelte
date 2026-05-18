@@ -2,6 +2,10 @@
   import '../app.css';
   import { browser } from '$app/environment';
   import { env as dynamicPublicEnv } from '$env/dynamic/public';
+  import {
+    PUBLIC_CLERK_PUBLISHABLE_KEY as staticClerkPublishableKey,
+    PUBLIC_CONVEX_URL as staticConvexUrl
+  } from '$env/static/public';
   import { api } from '$convex/_generated/api.js';
   import { setupConvex, useConvexClient } from 'convex-svelte';
   import { setContext } from 'svelte';
@@ -12,11 +16,9 @@
   let { children } = $props();
 
   const publicEnv = {
-    convexUrl: dynamicPublicEnv.PUBLIC_CONVEX_URL || import.meta.env.PUBLIC_CONVEX_URL || '',
+    convexUrl: dynamicPublicEnv.PUBLIC_CONVEX_URL || staticConvexUrl || '',
     clerkPublishableKey:
-      dynamicPublicEnv.PUBLIC_CLERK_PUBLISHABLE_KEY ||
-      import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY ||
-      ''
+      dynamicPublicEnv.PUBLIC_CLERK_PUBLISHABLE_KEY || staticClerkPublishableKey || ''
   };
   const convexUrl = publicEnv.convexUrl || 'https://placeholder.convex.cloud';
   const auth = $state(createAuthState());
