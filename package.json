@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "vercel-build": "npx convex deploy --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build'",
     "preview": "vite preview --host 0.0.0.0",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "convex:dev": "convex dev",
@@ -13,12 +14,12 @@
   },
   "dependencies": {
     "@clerk/clerk-js": "^6.11.1",
+    "@lucide/svelte": "^1.16.0",
     "convex": "^1.39.1",
-    "convex-svelte": "^0.0.12",
-    "@lucide/svelte": "^1.16.0"
+    "convex-svelte": "^0.0.12"
   },
   "devDependencies": {
-    "@sveltejs/adapter-auto": "^7.0.1",
+    "@sveltejs/adapter-vercel": "^6.3.3",
     "@sveltejs/kit": "^2.60.1",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "svelte": "^5.55.7",
