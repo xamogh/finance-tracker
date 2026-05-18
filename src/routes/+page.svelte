@@ -61,13 +61,14 @@
   const convex = useConvexClient();
   const dashboard = useQuery(
     api.finance.dashboard,
-    () => (auth.signedIn ? { month: currentMonth } : 'skip'),
+    () => (auth.signedIn && auth.userSynced ? { month: currentMonth } : 'skip'),
     { keepPreviousData: true }
   );
 
   let activeTab = $state<Tab>('overview');
   let addPanelOpen = $state(false);
   let budgetPanelOpen = $state(false);
+  let categoryPanelOpen = $state(false);
   let queryText = $state('');
   let categoryFilter = $state('all');
   let paidByFilter = $state<'all' | MemberKey>('all');
@@ -75,8 +76,10 @@
   const pageSize = 10;
   let formError = $state('');
   let budgetError = $state('');
+  let categoryError = $state('');
   let saving = $state(false);
   let savingBudget = $state(false);
+  let savingCategory = $state(false);
   let draft = $state({
     date: todayIso,
     note: '',
@@ -88,14 +91,21 @@
     category: '',
     amount: ''
   });
+  let categoryDraft = $state({
+    name: '',
+    icon: 'circle-ellipsis',
+    color: '#51bf7f'
+  });
 
   const authInitializing = $derived(!auth.initialized);
   const backendUnavailable = $derived(auth.initialized && !auth.backendReady);
   const clerkUnavailable = $derived(auth.initialized && auth.backendReady && !auth.clerkReady);
   const signedOut = $derived(auth.initialized && auth.backendReady && auth.clerkReady && !auth.signedIn);
-  const isLoadingDashboard = $derived(auth.signedIn && dashboard.isLoading);
+  const isPreparingAccount = $derived(auth.signedIn && !auth.userSynced && !auth.syncError);
+  const isLoadingDashboard = $derived(auth.signedIn && auth.userSynced && dashboard.isLoading);
   const dashboardError = $derived(dashboard.error?.message ?? '');
-  const hasNotice = $derived(!!dashboardError);
+  const blockingError = $derived(auth.syncError || dashboardError);
+  const hasNotice = $derived(!!blockingError);
 
   const liveCategories = $derived.by<Category[]>(() => {
     if (!dashboard.data?.categories) return [];
@@ -207,6 +217,13 @@
       Number(budgetDraft.amount) >= 0 &&
       !savingBudget
   );
+  const canSaveCategory = $derived(
+    auth.signedIn &&
+      auth.userSynced &&
+      categoryDraft.name.trim().length >= 2 &&
+      categoryDraft.color.trim().length > 0 &&
+      !savingCategory
+  );
 
   const tabMeta: Record<Tab, { label: string; subtitle: string }> = {
     overview: { label: 'Overview', subtitle: 'A snapshot of this month' },
@@ -215,10 +232,24 @@
     budgets: { label: 'Budgets', subtitle: 'Limits, remaining, and pressure' }
   };
 
+  const categoryIconOptions = [
+    { value: 'shopping-cart', label: 'Groceries', icon: ShoppingCart },
+    { value: 'utensils', label: 'Dining', icon: Utensils },
+    { value: 'car', label: 'Transport', icon: Car },
+    { value: 'zap', label: 'Utilities', icon: Zap },
+    { value: 'shopping-bag', label: 'Shopping', icon: ShoppingBag },
+    { value: 'ticket', label: 'Events', icon: Ticket },
+    { value: 'user', label: 'Personal', icon: User },
+    { value: 'circle-ellipsis', label: 'Misc', icon: CircleEllipsis }
+  ];
+
+  const categoryColorOptions = ['#51bf7f', '#ff7a3d', '#4b8ce8', '#f5bd2f', '#a776e8', '#ef6f91', '#20a7b8', '#b7bbc4'];
+
   function setTab(tab: Tab) {
     activeTab = tab;
     if (tab !== 'expenses') addPanelOpen = false;
     if (tab !== 'budgets') budgetPanelOpen = false;
+    if (tab !== 'categories') categoryPanelOpen = false;
   }
 
   function openExpensePanel() {
@@ -231,10 +262,38 @@
       auth.signIn();
       return;
     }
+    if (!auth.userSynced) {
+      activeTab = 'expenses';
+      addPanelOpen = false;
+      return;
+    }
     activeTab = 'expenses';
     budgetPanelOpen = false;
+    categoryPanelOpen = false;
     formError = '';
     addPanelOpen = true;
+  }
+
+  function openCategoryPanel() {
+    if (!auth.backendReady || !auth.clerkReady) {
+      activeTab = 'categories';
+      categoryPanelOpen = false;
+      return;
+    }
+    if (!auth.signedIn) {
+      auth.signIn();
+      return;
+    }
+    if (!auth.userSynced) {
+      activeTab = 'categories';
+      categoryPanelOpen = false;
+      return;
+    }
+    activeTab = 'categories';
+    addPanelOpen = false;
+    budgetPanelOpen = false;
+    categoryError = '';
+    categoryPanelOpen = true;
   }
 
   function openBudgetPanel(categorySlug = '') {
@@ -247,12 +306,18 @@
       auth.signIn();
       return;
     }
+    if (!auth.userSynced) {
+      activeTab = 'budgets';
+      budgetPanelOpen = false;
+      return;
+    }
     const firstCategory = liveCategories[0]?.slug ?? '';
     const selectedCategory = categorySlug || budgetDraft.category || firstCategory;
     const existing = budgetRows.find((row) => row.category === selectedCategory);
 
     activeTab = 'budgets';
     addPanelOpen = false;
+    categoryPanelOpen = false;
     budgetError = '';
     budgetDraft = {
       category: selectedCategory,
@@ -271,6 +336,10 @@
 
     if (!auth.signedIn) {
       auth.signIn();
+      return;
+    }
+    if (!auth.userSynced) {
+      formError = 'Finish connecting Clerk to Convex before adding expenses.';
       return;
     }
     if (!draft.note.trim()) {
@@ -306,11 +375,51 @@
     }
   }
 
+  async function saveCategory() {
+    categoryError = '';
+
+    if (!auth.signedIn) {
+      auth.signIn();
+      return;
+    }
+    if (!auth.userSynced) {
+      categoryError = 'Finish connecting Clerk to Convex before adding categories.';
+      return;
+    }
+    if (categoryDraft.name.trim().length < 2) {
+      categoryError = 'Category name must be at least 2 characters.';
+      return;
+    }
+
+    try {
+      savingCategory = true;
+      await convex.mutation(api.finance.addCategory, {
+        name: categoryDraft.name,
+        icon: categoryDraft.icon,
+        color: categoryDraft.color
+      });
+      categoryDraft = {
+        name: '',
+        icon: 'circle-ellipsis',
+        color: '#51bf7f'
+      };
+      categoryPanelOpen = false;
+    } catch (error) {
+      categoryError = error instanceof Error ? error.message : 'Could not save this category.';
+    } finally {
+      savingCategory = false;
+    }
+  }
+
   async function saveBudget() {
     budgetError = '';
 
     if (!auth.signedIn) {
       auth.signIn();
+      return;
+    }
+    if (!auth.userSynced) {
+      budgetError = 'Finish connecting Clerk to Convex before setting budgets.';
       return;
     }
     if (!budgetDraft.category) {
@@ -373,6 +482,7 @@
     if (event.key === 'Escape') {
       if (addPanelOpen) addPanelOpen = false;
       else if (budgetPanelOpen) budgetPanelOpen = false;
+      else if (categoryPanelOpen) categoryPanelOpen = false;
     }
   }
 
@@ -497,11 +607,15 @@
           <span>{currentMonthLabel}</span>
         </div>
         {#if activeTab === 'budgets'}
-          <button class="primary-button" type="button" onclick={() => openBudgetPanel()}>
+          <button class="primary-button" type="button" disabled={!auth.userSynced} onclick={() => openBudgetPanel()}>
             <Target size={15} /> Set budget
           </button>
+        {:else if activeTab === 'categories'}
+          <button class="primary-button" type="button" disabled={!auth.userSynced} onclick={openCategoryPanel}>
+            <Plus size={15} /> Add category
+          </button>
         {:else}
-          <button class="primary-button" type="button" onclick={openExpensePanel}>
+          <button class="primary-button" type="button" disabled={!auth.userSynced} onclick={openExpensePanel}>
             <Plus size={15} /> Add expense
           </button>
         {/if}
@@ -518,6 +632,9 @@
           {:else if clerkUnavailable}
             <strong>Clerk is not configured.</strong>
             <span>Set <code>PUBLIC_CLERK_PUBLISHABLE_KEY</code> to enable sign-in.</span>
+          {:else if auth.syncError}
+            <strong>Could not prepare your account.</strong>
+            <span>{auth.syncError}</span>
           {:else if dashboardError}
             <strong>Could not load dashboard.</strong>
             <span>{dashboardError}</span>
@@ -527,8 +644,14 @@
     {/if}
 
     <div class="page-body">
-      {#if isLoadingDashboard && !dashboard.data}
-        {@render LoadingState()}
+      {#if blockingError && !dashboard.data}
+        <section class="card state-card">
+          {@render EmptyState({ title: 'Account setup needs attention', body: blockingError, action: 'Retry connection', onAction: auth.retrySync })}
+        </section>
+      {:else if isPreparingAccount && !dashboard.data}
+        {@render LoadingState({ title: 'Preparing your household', body: 'Connecting Clerk to Convex and creating your starter categories.' })}
+      {:else if isLoadingDashboard && !dashboard.data}
+        {@render LoadingState({ title: 'Loading your dashboard', body: 'Fetching your latest data from Convex.' })}
       {:else if activeTab === 'overview'}
         {@render OverviewBlock()}
       {:else if activeTab === 'expenses'}
@@ -569,7 +692,7 @@
           <span>Category</span>
           <div class="select-wrap">
             <select bind:value={draft.category} disabled={!hasCategories}>
-              <option value="">{hasCategories ? 'Select category' : 'Categories will load...'}</option>
+              <option value="">{hasCategories ? 'Select category' : 'Add a category first'}</option>
               {#each liveCategories as option}
                 <option value={option.slug}>{option.name}</option>
               {/each}
@@ -577,6 +700,15 @@
             <ChevronDown size={14} />
           </div>
         </label>
+
+        {#if !hasCategories}
+          <div class="form-callout">
+            <p>No categories yet. Add one before recording expenses.</p>
+            <button class="ghost-button" type="button" onclick={() => { addPanelOpen = false; openCategoryPanel(); }}>
+              <Plus size={14} /> Add category
+            </button>
+          </div>
+        {/if}
 
         <div class="field">
           <span>Paid by</span>
@@ -594,9 +726,6 @@
           </div>
         </label>
 
-        {#if !hasCategories}
-          <p class="form-helper">No categories yet. Convex creates the base category list after sign-in.</p>
-        {/if}
         {#if formError}<p class="form-error">{formError}</p>{/if}
 
         <button class="primary-button block" type="submit" disabled={!canSaveExpense}>
@@ -604,6 +733,68 @@
         </button>
         <button class="ghost-button block" type="button" disabled={!canSaveExpense} onclick={() => saveExpense(true)}>
           Save and add another
+        </button>
+      </form>
+    </div>
+  {/if}
+
+  {#if categoryPanelOpen}
+    <button class="drawer-scrim" type="button" aria-label="Close add category" onclick={() => (categoryPanelOpen = false)}></button>
+    <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="add-category-title">
+      <header class="drawer-head">
+        <div>
+          <h2 id="add-category-title">Add category</h2>
+          <p>Available to both household members</p>
+        </div>
+        <button class="icon-button" type="button" onclick={() => (categoryPanelOpen = false)} aria-label="Close">
+          <X size={18} />
+        </button>
+      </header>
+
+      <form class="drawer-body" onsubmit={(event) => { event.preventDefault(); saveCategory(); }}>
+        <label class="field">
+          <span>Name</span>
+          <input type="text" bind:value={categoryDraft.name} placeholder="e.g. Health, Travel, Home" />
+        </label>
+
+        <div class="field">
+          <span>Icon</span>
+          <div class="icon-picker">
+            {#each categoryIconOptions as option}
+              {@const Icon = option.icon}
+              <button
+                type="button"
+                class:active={categoryDraft.icon === option.value}
+                onclick={() => (categoryDraft.icon = option.value)}
+                aria-label={option.label}
+                title={option.label}
+              >
+                <Icon size={17} />
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <div class="field">
+          <span>Color</span>
+          <div class="color-picker">
+            {#each categoryColorOptions as color}
+              <button
+                type="button"
+                class:active={categoryDraft.color === color}
+                style={`--swatch:${color};`}
+                onclick={() => (categoryDraft.color = color)}
+                aria-label={`Use color ${color}`}
+                title={color}
+              ></button>
+            {/each}
+          </div>
+        </div>
+
+        {#if categoryError}<p class="form-error">{categoryError}</p>{/if}
+
+        <button class="primary-button block" type="submit" disabled={!canSaveCategory}>
+          {savingCategory ? 'Saving...' : 'Save category'}
         </button>
       </form>
     </div>
@@ -627,6 +818,7 @@
           <span>Category</span>
           <div class="select-wrap">
             <select bind:value={budgetDraft.category} onchange={syncBudgetDraftAmount} disabled={!hasCategories}>
+              {#if !hasCategories}<option value="">Add a category first</option>{/if}
               {#each liveCategories as option}
                 <option value={option.slug}>{option.name}</option>
               {/each}
@@ -643,7 +835,16 @@
           </div>
         </label>
 
-        <p class="form-helper">Enter <code>0</code> to clear this category's budget for the month.</p>
+        {#if hasCategories}
+          <p class="form-helper">Enter <code>0</code> to clear this category's budget for the month.</p>
+        {:else}
+          <div class="form-callout">
+            <p>Add a category before setting a budget.</p>
+            <button class="ghost-button" type="button" onclick={() => { budgetPanelOpen = false; openCategoryPanel(); }}>
+              <Plus size={14} /> Add category
+            </button>
+          </div>
+        {/if}
         {#if budgetError}<p class="form-error">{budgetError}</p>{/if}
 
         <button class="primary-button block" type="submit" disabled={!canSaveBudget}>
@@ -753,9 +954,9 @@
       {:else}
         {@render EmptyState({
           title: 'No expenses recorded',
-          body: 'Add your first expense to start the ledger for this month.',
-          action: 'Add expense',
-          onAction: openExpensePanel
+          body: hasCategories ? 'Add your first expense to start the ledger for this month.' : 'Add a category before recording expenses.',
+          action: hasCategories ? 'Add expense' : 'Add category',
+          onAction: hasCategories ? openExpensePanel : openCategoryPanel
         })}
       {/if}
     </article>
@@ -794,9 +995,9 @@
       {:else}
         {@render EmptyState({
           title: 'No budgets set',
-          body: 'Set a limit on any category to see pressure indicators here.',
-          action: 'Set budget',
-          onAction: () => openBudgetPanel()
+          body: hasCategories ? 'Set a limit on any category to see pressure indicators here.' : 'Add a category before setting budgets.',
+          action: hasCategories ? 'Set budget' : 'Add category',
+          onAction: hasCategories ? () => openBudgetPanel() : openCategoryPanel
         })}
       {/if}
     </article>
@@ -880,9 +1081,9 @@
     {:else if liveExpenses.length === 0}
       {@render EmptyState({
         title: 'No expenses yet',
-        body: hasCategories ? 'Add your first expense to populate the ledger.' : 'Categories are still loading. Try again in a moment.',
-        action: hasCategories ? 'Add expense' : undefined,
-        onAction: hasCategories ? openExpensePanel : undefined
+        body: hasCategories ? 'Add your first expense to populate the ledger.' : 'Add a category before recording expenses.',
+        action: hasCategories ? 'Add expense' : 'Add category',
+        onAction: hasCategories ? openExpensePanel : openCategoryPanel
       })}
     {:else}
       {@render EmptyState({
@@ -907,6 +1108,46 @@
     {@render KpiCard({ icon: Tag, label: 'Categories', value: String(liveCategories.length), foot: `${categoryTotals.length} with spending` })}
     {@render KpiCard({ icon: CheckCircle2, tone: 'ok', label: 'On budget', value: String(onBudgetCount), foot: hasBudgets ? `${onBudgetPercent}% within limits` : 'No budgets set' })}
     {@render KpiCard({ icon: AlertCircle, tone: overBudget.length > 0 ? 'danger' : 'muted', label: 'Over budget', value: String(overBudget.length), foot: hasBudgets ? `${overBudgetPercent}% of budgets` : 'Set a budget to track' })}
+  </section>
+
+  <section class="card">
+    <header class="card-head">
+      <div>
+        <h2>Category library</h2>
+        <p class="muted">Categories are shared by both household members</p>
+      </div>
+      <button class="primary-button small" type="button" onclick={openCategoryPanel}>
+        <Plus size={14} /> Add category
+      </button>
+    </header>
+
+    {#if liveCategories.length > 0}
+      <ul class="category-library">
+        {#each liveCategories as item}
+          {@const spentForCategory = categoryTotals.find((row) => row.category.slug === item.slug)?.amount ?? 0}
+          {@const budgetForCategory = budgetRows.find((row) => row.category === item.slug)}
+          <li>
+            <div>
+              {@render CategoryPill({ category: item })}
+              <span class="muted">Spent {money(spentForCategory)} this month</span>
+            </div>
+            <div class="category-library-actions">
+              <span class="muted">{budgetForCategory?.isSet ? `${money(budgetForCategory.budget)} budget` : 'No budget'}</span>
+              <button class="row-action" type="button" onclick={() => openBudgetPanel(item.slug)}>
+                {budgetForCategory?.isSet ? 'Edit budget' : 'Set budget'}
+              </button>
+            </div>
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      {@render EmptyState({
+        title: 'No categories yet',
+        body: 'Add your first category before recording expenses or budgets.',
+        action: 'Add category',
+        onAction: openCategoryPanel
+      })}
+    {/if}
   </section>
 
   <section class="grid-2">
@@ -1040,9 +1281,9 @@
     {:else}
       {@render EmptyState({
         title: 'No categories yet',
-        body: 'Categories are created in Convex when you first sign in. Once they appear, set a monthly limit.',
-        action: hasCategories ? 'Set budget' : undefined,
-        onAction: hasCategories ? () => openBudgetPanel() : undefined
+        body: 'Add your first category before setting monthly limits.',
+        action: 'Add category',
+        onAction: openCategoryPanel
       })}
     {/if}
   </section>
@@ -1079,9 +1320,9 @@
       {:else}
         {@render EmptyState({
           title: 'No budgets to track',
-          body: 'Set a budget to see how close each category is to its monthly limit.',
-          action: 'Set budget',
-          onAction: () => openBudgetPanel()
+          body: hasCategories ? 'Set a budget to see how close each category is to its monthly limit.' : 'Add a category before setting budgets.',
+          action: hasCategories ? 'Set budget' : 'Add category',
+          onAction: hasCategories ? () => openBudgetPanel() : openCategoryPanel
         })}
       {/if}
     </article>
@@ -1100,7 +1341,7 @@
 
 <!-- ----- Shared snippets ----- -->
 
-{#snippet LoadingState()}
+{#snippet LoadingState({ title = 'Loading...', body = 'Fetching your latest data from Convex.' }: { title?: string; body?: string })}
   <section class="kpi-grid">
     {#each Array(4) as _}
       <div class="skeleton kpi-skeleton"></div>
@@ -1112,7 +1353,7 @@
   </section>
   <section class="card">
     <header class="card-head">
-      <div><h2>Loading...</h2><p class="muted">Fetching your latest data from Convex</p></div>
+      <div><h2>{title}</h2><p class="muted">{body}</p></div>
     </header>
     <div class="row-skeletons" aria-label="Loading entries">
       {#each Array(6) as _}
@@ -1289,6 +1530,13 @@
     </ul>
   {:else if liveBudgets.length === liveCategories.length && hasCategories}
     {@render EmptyState({ title: 'Every category has a budget', body: 'Nice, there is nothing left to suggest.' })}
+  {:else if !hasCategories}
+    {@render EmptyState({
+      title: 'Add categories first',
+      body: 'Budget suggestions appear after categories and expenses exist.',
+      action: 'Add category',
+      onAction: openCategoryPanel
+    })}
   {:else}
     {@render EmptyState({ title: 'Nothing to suggest', body: 'Categories without spending or budgets will appear here as suggestions.' })}
   {/if}

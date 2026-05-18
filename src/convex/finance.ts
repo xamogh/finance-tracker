@@ -21,6 +21,17 @@ const DEFAULT_CATEGORIES = [
   { name: 'Personal', slug: 'personal', icon: 'user', color: '#20a7b8', sortOrder: 8 }
 ];
 
+const CATEGORY_ICONS = new Set([
+  'shopping-cart',
+  'utensils',
+  'car',
+  'zap',
+  'shopping-bag',
+  'ticket',
+  'circle-ellipsis',
+  'user'
+]);
+
 const TREND_MONTHS = 6;
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -39,6 +50,35 @@ function monthWindow(month: string) {
   }
 
   return months;
+}
+
+function slugifyCategory(name: string) {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return slug || 'category';
+}
+
+async function uniqueCategorySlug(ctx: Parameters<typeof categoryBySlug>[0], householdId: Id<'households'>, name: string) {
+  const baseSlug = slugifyCategory(name);
+  let slug = baseSlug;
+  let suffix = 2;
+
+  while (await categoryBySlug(ctx, householdId, slug)) {
+    slug = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+
+  return slug;
+}
+
+function assertHexColor(color: string) {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) {
+    throw new Error('Choose a valid category color.');
+  }
 }
 
 export const ensureCurrentUser = mutation({
@@ -124,6 +164,48 @@ export const setupHouseholdCategories = mutation({
     }
 
     return { ok: true };
+  }
+});
+
+export const addCategory = mutation({
+  args: {
+    name: v.string(),
+    icon: v.string(),
+    color: v.string()
+  },
+  handler: async (ctx, args) => {
+    const { membership } = await requireMembership(ctx);
+    const name = args.name.trim();
+
+    if (name.length < 2) {
+      throw new Error('Category name must be at least 2 characters.');
+    }
+    if (name.length > 40) {
+      throw new Error('Category name must be 40 characters or fewer.');
+    }
+    if (!CATEGORY_ICONS.has(args.icon)) {
+      throw new Error('Choose a valid category icon.');
+    }
+    assertHexColor(args.color);
+
+    const existingCategories = await ctx.db
+      .query('categories')
+      .withIndex('by_household', (q) => q.eq('householdId', membership.householdId))
+      .collect();
+
+    const slug = await uniqueCategorySlug(ctx, membership.householdId, name);
+    const nextSortOrder =
+      existingCategories.reduce((max, category) => Math.max(max, category.sortOrder), 0) + 1;
+
+    return await ctx.db.insert('categories', {
+      householdId: membership.householdId,
+      name,
+      slug,
+      icon: args.icon,
+      color: args.color,
+      sortOrder: nextSortOrder,
+      createdAt: Date.now()
+    });
   }
 });
 
