@@ -1,7 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { browser } from '$app/environment';
-  import { env } from '$env/dynamic/public';
+  import { env as dynamicPublicEnv } from '$env/dynamic/public';
   import { api } from '$convex/_generated/api.js';
   import { setupConvex, useConvexClient } from 'convex-svelte';
   import { setContext } from 'svelte';
@@ -11,11 +11,18 @@
 
   let { children } = $props();
 
-  const convexUrl = env.PUBLIC_CONVEX_URL || 'https://placeholder.convex.cloud';
+  const publicEnv = {
+    convexUrl: dynamicPublicEnv.PUBLIC_CONVEX_URL || import.meta.env.PUBLIC_CONVEX_URL || '',
+    clerkPublishableKey:
+      dynamicPublicEnv.PUBLIC_CLERK_PUBLISHABLE_KEY ||
+      import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY ||
+      ''
+  };
+  const convexUrl = publicEnv.convexUrl || 'https://placeholder.convex.cloud';
   const auth = $state(createAuthState());
   let syncInFlight = false;
 
-  setupConvex(convexUrl, { disabled: !browser || !env.PUBLIC_CONVEX_URL });
+  setupConvex(convexUrl, { disabled: !browser || !publicEnv.convexUrl });
   const convex = useConvexClient();
   setContext(AUTH_CONTEXT, auth);
 
@@ -56,8 +63,8 @@
   }
 
   onMount(async () => {
-    auth.backendReady = Boolean(env.PUBLIC_CONVEX_URL);
-    const publishableKey = env.PUBLIC_CLERK_PUBLISHABLE_KEY;
+    auth.backendReady = Boolean(publicEnv.convexUrl);
+    const publishableKey = publicEnv.clerkPublishableKey;
 
     if (!publishableKey) {
       auth.initialized = true;
