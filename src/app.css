@@ -700,6 +700,42 @@ code {
   color: var(--muted);
 }
 
+.trend-head {
+  align-items: center;
+}
+
+.trend-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  flex: 0 0 auto;
+}
+
+.trend-toggle button {
+  height: 28px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.trend-toggle button:hover {
+  color: var(--ink);
+}
+
+.trend-toggle button.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-xs);
+}
+
 /* ---------------- Data table ---------------- */
 
 .table-wrap {
@@ -1005,6 +1041,9 @@ code {
 
 .bar-trend {
   position: relative;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding-bottom: 2px;
 }
 
 .bars {
@@ -1014,7 +1053,7 @@ code {
   gap: 14px;
   align-items: end;
   min-height: 220px;
-  padding: 20px 4px 4px;
+  padding: 34px 4px 4px;
   background-image: repeating-linear-gradient(
     to top,
     transparent 0,
@@ -1022,6 +1061,11 @@ code {
     var(--line) 44px,
     transparent 45px
   );
+}
+
+.bars.compact {
+  gap: 8px;
+  padding-top: 34px;
 }
 
 .bar-col {
@@ -1045,6 +1089,10 @@ code {
   min-height: 3px;
   border-radius: 6px 6px 2px 2px;
   background: linear-gradient(180deg, #d6daff, #b8c1f6);
+}
+
+.bars.compact .bar-track span {
+  max-width: 22px;
 }
 
 .bar-track span.current {
@@ -1083,6 +1131,10 @@ code {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.bars.compact .bar-label {
+  font-size: 10.5px;
 }
 
 /* ---------------- Line trend ---------------- */
@@ -1853,6 +1905,19 @@ code {
 
   .filters {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trend-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .trend-toggle {
+    width: 100%;
+  }
+
+  .trend-toggle button {
+    flex: 1;
   }
 
   .category-library li,
