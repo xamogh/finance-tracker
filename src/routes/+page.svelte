@@ -51,6 +51,7 @@
   } from '$lib/finance';
 
   type Tab = 'overview' | 'expenses' | 'categories' | 'budgets';
+  type TrendMode = 'daily' | 'monthly';
 
   const today = new Date();
   const todayIso = localIsoDate(today);
@@ -66,6 +67,7 @@
   );
 
   let activeTab = $state<Tab>('overview');
+  let trendMode = $state<TrendMode>('daily');
   let addPanelOpen = $state(false);
   let budgetPanelOpen = $state(false);
   let categoryPanelOpen = $state(false);
@@ -164,6 +166,34 @@
   const liveBudgets = $derived(budgetRows.filter((row) => row.isSet));
 
   const trendData = $derived.by<TrendPoint[]>(() => dashboard.data?.trend ?? []);
+  const dailyTrendData = $derived.by<TrendPoint[]>(() => {
+    const currentDay = Math.max(1, Number(todayIso.slice(8, 10)));
+    const dailyTotals = new Map<string, number>();
+
+    for (const expense of liveExpenses) {
+      dailyTotals.set(
+        expense.date,
+        Number(((dailyTotals.get(expense.date) ?? 0) + expense.amount).toFixed(2))
+      );
+    }
+
+    return Array.from({ length: currentDay }, (_, index) => {
+      const day = index + 1;
+      const date = `${currentMonth}-${String(day).padStart(2, '0')}`;
+      return {
+        month: date,
+        label: String(day),
+        amount: dailyTotals.get(date) ?? 0
+      };
+    });
+  });
+  const visibleTrendData = $derived(trendMode === 'daily' ? dailyTrendData : trendData);
+  const trendTitle = $derived(trendMode === 'daily' ? 'Daily trend' : 'Monthly trend');
+  const trendSubtitle = $derived(
+    trendMode === 'daily'
+      ? `Daily spend in ${currentMonthLabel}`
+      : `Total spent over the last ${trendData.length || 6} months`
+  );
   const categoryTrendData = $derived.by<CategoryTrend>(() => dashboard.data?.categoryTrend ?? {});
   const spent = $derived(totalSpent(liveExpenses));
   const categoryTotals = $derived(totalsByCategory(liveExpenses, liveCategories));
@@ -891,13 +921,31 @@
 
   <section class="grid-2">
     <article class="card span-2">
-      <header class="card-head">
+      <header class="card-head trend-head">
         <div>
-          <h2>Monthly trend</h2>
-          <p class="muted">Total spent over the last {trendData.length || 6} months</p>
+          <h2>{trendTitle}</h2>
+          <p class="muted">{trendSubtitle}</p>
+        </div>
+        <div class="trend-toggle" role="group" aria-label="Trend granularity">
+          <button
+            class:active={trendMode === 'daily'}
+            type="button"
+            aria-pressed={trendMode === 'daily'}
+            onclick={() => (trendMode = 'daily')}
+          >
+            Daily
+          </button>
+          <button
+            class:active={trendMode === 'monthly'}
+            type="button"
+            aria-pressed={trendMode === 'monthly'}
+            onclick={() => (trendMode = 'monthly')}
+          >
+            Monthly
+          </button>
         </div>
       </header>
-      {@render BarTrend({ points: trendData })}
+      {@render BarTrend({ points: visibleTrendData })}
     </article>
 
     <article class="card">
@@ -1452,7 +1500,11 @@
   {#if points.length > 0}
     {@const max = Math.max(1, ...points.map((p) => p.amount))}
     <div class="bar-trend">
-      <div class="bars">
+      <div
+        class="bars"
+        class:compact={points.length > 12}
+        style={points.length > 12 ? `min-width:${points.length * 30}px;` : ''}
+      >
         {#each points as point, index}
           {@const height = max > 0 ? Math.round((point.amount / max) * 100) : 0}
           <div class="bar-col">
