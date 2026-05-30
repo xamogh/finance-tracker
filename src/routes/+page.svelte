@@ -1,8 +1,6 @@
 <script lang="ts">
   import {
     AlertCircle,
-    ArrowDownRight,
-    ArrowUpRight,
     Calendar,
     Car,
     CheckCircle2,
@@ -14,6 +12,7 @@
     LayoutDashboard,
     LogIn,
     LogOut,
+    Moon,
     PiggyBank,
     Plus,
     ReceiptText,
@@ -21,9 +20,12 @@
     ShoppingBag,
     ShoppingCart,
     SlidersHorizontal,
+    Sun,
     Tag,
     Target,
     Ticket,
+    TrendingDown,
+    TrendingUp,
     User,
     UserPlus,
     Utensils,
@@ -31,7 +33,8 @@
     X,
     Zap
   } from '@lucide/svelte';
-  import { getContext } from 'svelte';
+  import { getContext, onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { useConvexClient, useQuery } from 'convex-svelte';
   import { api } from '$convex/_generated/api.js';
   import { AUTH_CONTEXT, type AuthState } from '$lib/auth.svelte';
@@ -66,6 +69,7 @@
     { keepPreviousData: true }
   );
 
+  let theme = $state<'light' | 'dark'>('dark');
   let activeTab = $state<Tab>('overview');
   let trendMode = $state<TrendMode>('daily');
   let addPanelOpen = $state(false);
@@ -82,6 +86,12 @@
   let saving = $state(false);
   let savingBudget = $state(false);
   let savingCategory = $state(false);
+
+  // chart interaction state
+  let trendW = $state(680);
+  let catTrendW = $state(680);
+  let hoverTrend = $state<number | null>(null);
+
   let draft = $state({
     date: todayIso,
     note: '',
@@ -96,13 +106,38 @@
   let categoryDraft = $state({
     name: '',
     icon: 'circle-ellipsis',
-    color: '#51bf7f'
+    color: '#2563eb'
   });
+
+  onMount(() => {
+    try {
+      const stored = localStorage.getItem('ledger-theme');
+      if (stored === 'light' || stored === 'dark') theme = stored;
+      else theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    } catch {
+      theme = 'dark';
+    }
+  });
+
+  $effect(() => {
+    if (!browser) return;
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('ledger-theme', theme);
+    } catch {
+      /* ignore */
+    }
+  });
+
+  function toggleTheme() {
+    theme = theme === 'dark' ? 'light' : 'dark';
+  }
 
   const authInitializing = $derived(!auth.initialized);
   const backendUnavailable = $derived(auth.initialized && !auth.backendReady);
   const clerkUnavailable = $derived(auth.initialized && auth.backendReady && !auth.clerkReady);
   const signedOut = $derived(auth.initialized && auth.backendReady && auth.clerkReady && !auth.signedIn);
+  const isAuthScreen = $derived(authInitializing || backendUnavailable || clerkUnavailable || signedOut);
   const isPreparingAccount = $derived(auth.signedIn && !auth.userSynced && !auth.syncError);
   const isLoadingDashboard = $derived(auth.signedIn && auth.userSynced && dashboard.isLoading);
   const dashboardError = $derived(dashboard.error?.message ?? '');
@@ -188,13 +223,16 @@
     });
   });
   const visibleTrendData = $derived(trendMode === 'daily' ? dailyTrendData : trendData);
-  const trendTitle = $derived(trendMode === 'daily' ? 'Daily trend' : 'Monthly trend');
+  const trendTitle = $derived(trendMode === 'daily' ? 'Daily spend' : 'Monthly trend');
   const trendSubtitle = $derived(
     trendMode === 'daily'
-      ? `Daily spend in ${currentMonthLabel}`
+      ? `Each day in ${currentMonthLabel}`
       : `Total spent over the last ${trendData.length || 6} months`
   );
   const categoryTrendData = $derived.by<CategoryTrend>(() => dashboard.data?.categoryTrend ?? {});
+  const categoryTrendEntries = $derived(
+    Object.entries(categoryTrendData).filter(([, values]) => values.some((value) => value > 0))
+  );
   const spent = $derived(totalSpent(liveExpenses));
   const categoryTotals = $derived(totalsByCategory(liveExpenses, liveCategories));
   const hasExpenses = $derived(liveExpenses.length > 0);
@@ -273,13 +311,78 @@
     { value: 'circle-ellipsis', label: 'Misc', icon: CircleEllipsis }
   ];
 
-  const categoryColorOptions = ['#51bf7f', '#ff7a3d', '#4b8ce8', '#f5bd2f', '#a776e8', '#ef6f91', '#20a7b8', '#b7bbc4'];
+  const categoryColorOptions = ['#2563eb', '#059669', '#ea580c', '#dc2626', '#9333ea', '#d97706', '#0891b2', '#64748b'];
+
+  // ----- charts -----
+  const CHART_H = 240;
+  const CHART_PAD = { top: 26, right: 14, bottom: 8, left: 14 };
+
+  function chartGeometry(points: TrendPoint[], width: number) {
+    const innerW = Math.max(1, width - CHART_PAD.left - CHART_PAD.right);
+    const innerH = CHART_H - CHART_PAD.top - CHART_PAD.bottom;
+    const max = Math.max(1, ...points.map((point) => point.amount));
+    const stepX = points.length > 1 ? innerW / (points.length - 1) : 0;
+    const coords = points.map((point, index) => ({
+      x: CHART_PAD.left + (points.length > 1 ? index * stepX : innerW / 2),
+      y: CHART_PAD.top + innerH - (point.amount / max) * innerH,
+      amount: point.amount,
+      label: point.label
+    }));
+    return { coords, max, innerH, stepX, baseY: CHART_PAD.top + innerH };
+  }
+
+  function smoothPath(points: { x: number; y: number }[]) {
+    if (points.length === 0) return '';
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+    let d = `M ${points[0].x} ${points[0].y}`;
+    const t = 0.16;
+    for (let i = 0; i < points.length - 1; i += 1) {
+      const p0 = points[i - 1] ?? points[i];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[i + 2] ?? p2;
+      const c1x = p1.x + (p2.x - p0.x) * t;
+      const c1y = p1.y + (p2.y - p0.y) * t;
+      const c2x = p2.x - (p3.x - p1.x) * t;
+      const c2y = p2.y - (p3.y - p1.y) * t;
+      d += ` C ${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+    }
+    return d;
+  }
+
+  function updateTrendHover(event: PointerEvent) {
+    const points = visibleTrendData;
+    if (points.length === 0) {
+      hoverTrend = null;
+      return;
+    }
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const geo = chartGeometry(points, rect.width);
+    let best = 0;
+    let bestDist = Infinity;
+    for (let index = 0; index < geo.coords.length; index += 1) {
+      const distance = Math.abs(geo.coords[index].x - x);
+      if (distance < bestDist) {
+        bestDist = distance;
+        best = index;
+      }
+    }
+    hoverTrend = best;
+  }
 
   function setTab(tab: Tab) {
     activeTab = tab;
+    hoverTrend = null;
     if (tab !== 'expenses') addPanelOpen = false;
     if (tab !== 'budgets') budgetPanelOpen = false;
     if (tab !== 'categories') categoryPanelOpen = false;
+  }
+
+  function primaryAction() {
+    if (activeTab === 'budgets') openBudgetPanel();
+    else if (activeTab === 'categories') openCategoryPanel();
+    else openExpensePanel();
   }
 
   function openExpensePanel() {
@@ -431,7 +534,7 @@
       categoryDraft = {
         name: '',
         icon: 'circle-ellipsis',
-        color: '#51bf7f'
+        color: '#7c8cff'
       };
       categoryPanelOpen = false;
     } catch (error) {
@@ -505,7 +608,7 @@
     const r = parseInt(cleaned.slice(0, 2), 16);
     const g = parseInt(cleaned.slice(2, 4), 16);
     const b = parseInt(cleaned.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, 0.13)`;
+    return `rgba(${r}, ${g}, ${b}, 0.16)`;
   }
 
   function handleKey(event: KeyboardEvent) {
@@ -513,6 +616,23 @@
       if (addPanelOpen) addPanelOpen = false;
       else if (budgetPanelOpen) budgetPanelOpen = false;
       else if (categoryPanelOpen) categoryPanelOpen = false;
+      return;
+    }
+
+    const target = event.target as HTMLElement | null;
+    const typing =
+      !!target &&
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable);
+    if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+
+    if ((event.key === 'n' || event.key === 'N') && !isAuthScreen && auth.userSynced) {
+      if (!addPanelOpen && !budgetPanelOpen && !categoryPanelOpen) {
+        event.preventDefault();
+        primaryAction();
+      }
     }
   }
 
@@ -530,10 +650,23 @@
 
 <svelte:window onkeydown={handleKey} />
 
+{#if isAuthScreen}
+  <button
+    class="icon-button"
+    style="position:fixed; top:18px; right:18px; z-index:5;"
+    type="button"
+    onclick={toggleTheme}
+    aria-label="Toggle theme"
+    title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
+  >
+    {#if theme === 'dark'}<Sun size={17} />{:else}<Moon size={17} />{/if}
+  </button>
+{/if}
+
 {#if authInitializing}
   <main class="auth-screen">
     <section class="auth-panel">
-      <span class="auth-mark"><Wallet size={26} /></span>
+      <span class="auth-mark"><Wallet size={28} /></span>
       <p class="auth-eyebrow">Household finance</p>
       <h1>Preparing Ledger</h1>
       <p>Checking your Clerk session and Convex connection.</p>
@@ -542,7 +675,7 @@
 {:else if backendUnavailable}
   <main class="auth-screen">
     <section class="auth-panel">
-      <span class="auth-mark warn"><AlertCircle size={26} /></span>
+      <span class="auth-mark warn"><AlertCircle size={28} /></span>
       <p class="auth-eyebrow">Setup required</p>
       <h1>Connect Convex</h1>
       <p>Set <code>PUBLIC_CONVEX_URL</code> and start Convex to enable live household finance data.</p>
@@ -551,7 +684,7 @@
 {:else if clerkUnavailable}
   <main class="auth-screen">
     <section class="auth-panel">
-      <span class="auth-mark warn"><AlertCircle size={26} /></span>
+      <span class="auth-mark warn"><AlertCircle size={28} /></span>
       <p class="auth-eyebrow">Setup required</p>
       <h1>Connect Clerk</h1>
       <p>Set <code>PUBLIC_CLERK_PUBLISHABLE_KEY</code> to enable sign-in before the tracker loads.</p>
@@ -560,7 +693,7 @@
 {:else if signedOut}
   <main class="auth-screen">
     <section class="auth-panel">
-      <span class="auth-mark"><Wallet size={26} /></span>
+      <span class="auth-mark"><Wallet size={28} /></span>
       <p class="auth-eyebrow">Household finance</p>
       <h1>Sign in to open Ledger</h1>
       <p>Create your account first, then sign in any time after that. Only approved household emails can open the tracker.</p>
@@ -587,18 +720,18 @@
 
     <nav class="sidenav" aria-label="Main">
       <button class:active={activeTab === 'overview'} type="button" onclick={() => setTab('overview')}>
-        <LayoutDashboard size={17} /> <span>Overview</span>
+        <LayoutDashboard size={18} /> <span>Overview</span>
       </button>
       <button class:active={activeTab === 'expenses'} type="button" onclick={() => setTab('expenses')}>
-        <ReceiptText size={17} /> <span>Expenses</span>
+        <ReceiptText size={18} /> <span>Expenses</span>
         {#if hasExpenses}<em>{liveExpenses.length}</em>{/if}
       </button>
       <button class:active={activeTab === 'categories'} type="button" onclick={() => setTab('categories')}>
-        <Tag size={17} /> <span>Categories</span>
+        <Tag size={18} /> <span>Categories</span>
         {#if hasCategories}<em>{liveCategories.length}</em>{/if}
       </button>
       <button class:active={activeTab === 'budgets'} type="button" onclick={() => setTab('budgets')}>
-        <Target size={17} /> <span>Budgets</span>
+        <Target size={18} /> <span>Budgets</span>
         {#if hasBudgets}<em>{liveBudgets.length}</em>{/if}
       </button>
     </nav>
@@ -622,31 +755,40 @@
       {:else}
         <p class="foot-muted">Authentication unavailable</p>
       {/if}
+
+      <div class="theme-toggle" role="group" aria-label="Theme">
+        <button class:active={theme === 'light'} type="button" onclick={() => (theme = 'light')}>
+          <Sun size={14} /> Light
+        </button>
+        <button class:active={theme === 'dark'} type="button" onclick={() => (theme = 'dark')}>
+          <Moon size={14} /> Dark
+        </button>
+      </div>
     </div>
   </aside>
 
   <div class="main">
-    <header class="page-bar">
-      <div>
+    <header class="topbar">
+      <div class="topbar-titles">
         <h1>{tabMeta[activeTab].label}</h1>
         <p>{tabMeta[activeTab].subtitle}</p>
       </div>
-      <div class="bar-actions">
+      <div class="topbar-actions">
         <div class="month-pill" title="Current period">
           <Calendar size={15} />
           <span>{currentMonthLabel}</span>
         </div>
         {#if activeTab === 'budgets'}
           <button class="primary-button" type="button" disabled={!auth.userSynced} onclick={() => openBudgetPanel()}>
-            <Target size={15} /> Set budget
+            <Target size={15} /> Set budget <span class="kbd">N</span>
           </button>
         {:else if activeTab === 'categories'}
           <button class="primary-button" type="button" disabled={!auth.userSynced} onclick={openCategoryPanel}>
-            <Plus size={15} /> Add category
+            <Plus size={15} /> Add category <span class="kbd">N</span>
           </button>
         {:else}
           <button class="primary-button" type="button" disabled={!auth.userSynced} onclick={openExpensePanel}>
-            <Plus size={15} /> Add expense
+            <Plus size={15} /> Add expense <span class="kbd">N</span>
           </button>
         {/if}
       </div>
@@ -759,7 +901,7 @@
         {#if formError}<p class="form-error">{formError}</p>{/if}
 
         <button class="primary-button block" type="submit" disabled={!canSaveExpense}>
-          {saving ? 'Saving...' : 'Save expense'}
+          {saving ? 'Saving…' : 'Save expense'}
         </button>
         <button class="ghost-button block" type="button" disabled={!canSaveExpense} onclick={() => saveExpense(true)}>
           Save and add another
@@ -799,7 +941,7 @@
                 aria-label={option.label}
                 title={option.label}
               >
-                <Icon size={17} />
+                <Icon size={18} />
               </button>
             {/each}
           </div>
@@ -824,7 +966,7 @@
         {#if categoryError}<p class="form-error">{categoryError}</p>{/if}
 
         <button class="primary-button block" type="submit" disabled={!canSaveCategory}>
-          {savingCategory ? 'Saving...' : 'Save category'}
+          {savingCategory ? 'Saving…' : 'Save category'}
         </button>
       </form>
     </div>
@@ -878,7 +1020,7 @@
         {#if budgetError}<p class="form-error">{budgetError}</p>{/if}
 
         <button class="primary-button block" type="submit" disabled={!canSaveBudget}>
-          {savingBudget ? 'Saving...' : 'Save budget'}
+          {savingBudget ? 'Saving…' : 'Save budget'}
         </button>
       </form>
     </div>
@@ -892,6 +1034,7 @@
   <section class="kpi-grid">
     {@render KpiCard({
       icon: Coins,
+      feature: true,
       label: 'Spent this month',
       value: money(spent),
       foot: previousMonthTrend > 0 ? null : 'No prior month yet',
@@ -921,31 +1064,25 @@
 
   <section class="grid-2">
     <article class="card span-2">
-      <header class="card-head trend-head">
+      <header class="card-head center">
         <div>
           <h2>{trendTitle}</h2>
           <p class="muted">{trendSubtitle}</p>
         </div>
-        <div class="trend-toggle" role="group" aria-label="Trend granularity">
-          <button
-            class:active={trendMode === 'daily'}
-            type="button"
-            aria-pressed={trendMode === 'daily'}
-            onclick={() => (trendMode = 'daily')}
-          >
-            Daily
-          </button>
-          <button
-            class:active={trendMode === 'monthly'}
-            type="button"
-            aria-pressed={trendMode === 'monthly'}
-            onclick={() => (trendMode = 'monthly')}
-          >
-            Monthly
-          </button>
+        <div class="seg" role="group" aria-label="Trend granularity">
+          <button class:active={trendMode === 'daily'} type="button" aria-pressed={trendMode === 'daily'} onclick={() => (trendMode = 'daily')}>Daily</button>
+          <button class:active={trendMode === 'monthly'} type="button" aria-pressed={trendMode === 'monthly'} onclick={() => (trendMode = 'monthly')}>Monthly</button>
         </div>
       </header>
-      {@render BarTrend({ points: visibleTrendData })}
+      <div
+        class="chart"
+        bind:clientWidth={trendW}
+        onpointermove={updateTrendHover}
+        onpointerleave={() => (hoverTrend = null)}
+        role="presentation"
+      >
+        {@render AreaTrend({ points: visibleTrendData, width: trendW })}
+      </div>
     </article>
 
     <article class="card">
@@ -1031,7 +1168,7 @@
                 <strong class:over>{pct}%</strong>
               </header>
               <div class="rail">
-                <span style={`width:${Math.min(100, pct)}%; background:${over ? 'var(--danger)' : cat.color};`}></span>
+                <span style={`width:${Math.min(100, pct)}%; background:${over ? 'var(--danger)' : cat.color}; color:${over ? 'var(--danger)' : cat.color};`}></span>
               </div>
               <footer>
                 <span>{money(row.spent)} of {money(row.budget)}</span>
@@ -1054,7 +1191,7 @@
 
 {#snippet ExpensesBlock()}
   <section class="kpi-grid two-up">
-    {@render KpiCard({ icon: Coins, label: `Spent in ${currentMonthLabel}`, value: money(spent), foot: `${liveExpenses.length} entries` })}
+    {@render KpiCard({ icon: Coins, feature: true, label: `Spent in ${currentMonthLabel}`, value: money(spent), foot: `${liveExpenses.length} entries` })}
     {@render KpiCard({ icon: SlidersHorizontal, label: 'After filters', value: money(totalSpent(filteredExpenses)), foot: `${filteredExpenses.length} matching` })}
   </section>
 
@@ -1076,7 +1213,7 @@
         <ChevronDown size={14} />
       </div>
 
-      <div class="paid-toggle">
+      <div class="seg">
         <button class:active={paidByFilter === 'all'} type="button" onclick={() => { paidByFilter = 'all'; page = 1; }}>All</button>
         <button class:active={paidByFilter === 'me'} type="button" onclick={() => { paidByFilter = 'me'; page = 1; }}>Me</button>
         <button class:active={paidByFilter === 'wife'} type="button" onclick={() => { paidByFilter = 'wife'; page = 1; }}>Wife</button>
@@ -1110,7 +1247,7 @@
       </div>
       <footer class="table-foot">
         <span class="muted">
-          Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, filteredExpenses.length)} of {filteredExpenses.length}
+          Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filteredExpenses.length)} of {filteredExpenses.length}
         </span>
         <div class="pager">
           <button type="button" disabled={page === 1} onclick={() => (page -= 1)} aria-label="Previous page">
@@ -1148,6 +1285,7 @@
   <section class="kpi-grid">
     {@render KpiCard({
       icon: Coins,
+      feature: true,
       label: 'Total spent',
       value: money(spent),
       delta: previousMonthTrend > 0 ? { value: monthDelta, percent: monthDeltaPercent, baseline: 'vs last month' } : null,
@@ -1159,7 +1297,7 @@
   </section>
 
   <section class="card">
-    <header class="card-head">
+    <header class="card-head center">
       <div>
         <h2>Category library</h2>
         <p class="muted">Categories are shared by both household members</p>
@@ -1175,15 +1313,16 @@
           {@const spentForCategory = categoryTotals.find((row) => row.category.slug === item.slug)?.amount ?? 0}
           {@const budgetForCategory = budgetRows.find((row) => row.category === item.slug)}
           <li>
-            <div>
+            <div class="lib-top">
               {@render CategoryPill({ category: item })}
-              <span class="muted">Spent {money(spentForCategory)} this month</span>
-            </div>
-            <div class="category-library-actions">
-              <span class="muted">{budgetForCategory?.isSet ? `${money(budgetForCategory.budget)} budget` : 'No budget'}</span>
               <button class="row-action" type="button" onclick={() => openBudgetPanel(item.slug)}>
-                {budgetForCategory?.isSet ? 'Edit budget' : 'Set budget'}
+                {budgetForCategory?.isSet ? 'Edit' : 'Set budget'}
               </button>
+            </div>
+            <span class="lib-spent">{money(spentForCategory)}</span>
+            <div class="lib-foot">
+              <span>spent this month</span>
+              <span>{budgetForCategory?.isSet ? `${money(budgetForCategory.budget)} budget` : 'No budget'}</span>
             </div>
           </li>
         {/each}
@@ -1217,7 +1356,7 @@
                 <span class="pct" style={`color:${item.category.color}; background:${item.category.soft};`}>{pct}%</span>
               </div>
               <div class="rail">
-                <span style={`width:${pct}%; background:${item.category.color};`}></span>
+                <span style={`width:${pct}%; background:${item.category.color}; color:${item.category.color};`}></span>
               </div>
             </li>
           {/each}
@@ -1252,7 +1391,24 @@
         <p class="muted">Last 6 months</p>
       </div>
     </header>
-    {@render LineTrend({ points: categoryTrendData })}
+    {#if categoryTrendEntries.length > 0}
+      <div class="line-trend">
+        <div class="chart" bind:clientWidth={catTrendW}>
+          {@render LineTrend({ entries: categoryTrendEntries, width: catTrendW })}
+        </div>
+        <ul class="legend compact">
+          {#each categoryTrendEntries as [slug]}
+            {@const item = category(slug)}
+            <li>
+              <span class="swatch" style={`background:${item.color}; color:${item.color};`}></span>
+              <span class="legend-name">{item.name}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {:else}
+      {@render EmptyState({ title: 'No trend yet', body: 'Add expenses across months to compare category movement.' })}
+    {/if}
   </section>
 {/snippet}
 
@@ -1263,7 +1419,7 @@
   </section>
 
   <section class="card">
-    <header class="card-head">
+    <header class="card-head center">
       <div>
         <h2>Monthly budgets</h2>
         <p class="muted">Limits and remaining balances for {currentMonthLabel}</p>
@@ -1298,7 +1454,7 @@
                   {#if row.isSet}
                     <div class="cell-bar">
                       <div class="rail mini">
-                        <span style={`width:${Math.min(100, row.budget > 0 ? (row.spent / row.budget) * 100 : 0)}%; background:${over ? 'var(--danger)' : item.color};`}></span>
+                        <span style={`width:${Math.min(100, row.budget > 0 ? (row.spent / row.budget) * 100 : 0)}%; background:${over ? 'var(--danger)' : item.color}; color:${over ? 'var(--danger)' : item.color};`}></span>
                       </div>
                       <span>{money(row.spent)}</span>
                     </div>
@@ -1356,7 +1512,7 @@
                 <strong class:over>{pct}%</strong>
               </header>
               <div class="rail">
-                <span style={`width:${Math.min(100, pct)}%; background:${over ? 'var(--danger)' : cat.color};`}></span>
+                <span style={`width:${Math.min(100, pct)}%; background:${over ? 'var(--danger)' : cat.color}; color:${over ? 'var(--danger)' : cat.color};`}></span>
               </div>
               <footer>
                 <span>{money(row.spent)} of {money(row.budget)}</span>
@@ -1389,7 +1545,7 @@
 
 <!-- ----- Shared snippets ----- -->
 
-{#snippet LoadingState({ title = 'Loading...', body = 'Fetching your latest data from Convex.' }: { title?: string; body?: string })}
+{#snippet LoadingState({ title = 'Loading…', body = 'Fetching your latest data from Convex.' }: { title?: string; body?: string })}
   <section class="kpi-grid">
     {#each Array(4) as _}
       <div class="skeleton kpi-skeleton"></div>
@@ -1413,7 +1569,7 @@
 
 {#snippet EmptyState({ title, body, action, onAction }: { title: string; body: string; action?: string; onAction?: () => void })}
   <div class="empty-state">
-    <span class="empty-mark"><PiggyBank size={22} /></span>
+    <span class="empty-mark"><PiggyBank size={24} /></span>
     <strong>{title}</strong>
     <p>{body}</p>
     {#if action && onAction}
@@ -1422,9 +1578,9 @@
   </div>
 {/snippet}
 
-{#snippet KpiCard({ icon, label, value, foot = null, delta = null, tone = 'default' }: { icon: any; label: string; value: string; foot?: string | null; delta?: { value: number; percent: number; baseline: string } | null; tone?: 'default' | 'ok' | 'danger' | 'muted' })}
+{#snippet KpiCard({ icon, label, value, foot = null, delta = null, tone = 'default', feature = false }: { icon: any; label: string; value: string; foot?: string | null; delta?: { value: number; percent: number; baseline: string } | null; tone?: 'default' | 'ok' | 'danger' | 'muted'; feature?: boolean })}
   {@const Icon = icon}
-  <article class={`kpi tone-${tone}`}>
+  <article class={`kpi tone-${tone} ${feature ? 'feature' : ''}`}>
     <div class="kpi-head">
       <span class="kpi-icon"><Icon size={16} /></span>
       <span class="kpi-label">{label}</span>
@@ -1433,9 +1589,9 @@
     {#if delta}
       <span class={`kpi-delta ${delta.value <= 0 ? 'down' : 'up'}`}>
         {#if delta.value <= 0}
-          <ArrowDownRight size={13} />
+          <TrendingDown size={14} />
         {:else}
-          <ArrowUpRight size={13} />
+          <TrendingUp size={14} />
         {/if}
         {money(Math.abs(delta.value))}
         <em>({Math.abs(delta.percent)}% {delta.baseline})</em>
@@ -1485,7 +1641,7 @@
     {#if totals.length > 0}
       {#each totals as item}
         <li>
-          <span class="swatch" style={`background:${item.category.color};`}></span>
+          <span class="swatch" style={`background:${item.category.color}; color:${item.category.color};`}></span>
           <span class="legend-name">{item.category.name}</span>
           <strong>{compact ? `${categoryPercent(item.amount, total)}%` : money(item.amount)}</strong>
         </li>
@@ -1496,72 +1652,80 @@
   </ul>
 {/snippet}
 
-{#snippet BarTrend({ points }: { points: TrendPoint[] })}
+{#snippet AreaTrend({ points, width }: { points: TrendPoint[]; width: number })}
   {#if points.length > 0}
-    {@const max = Math.max(1, ...points.map((p) => p.amount))}
-    <div class="bar-trend">
-      <div
-        class="bars"
-        class:compact={points.length > 12}
-        style={points.length > 12 ? `min-width:${points.length * 30}px;` : ''}
-      >
-        {#each points as point, index}
-          {@const height = max > 0 ? Math.round((point.amount / max) * 100) : 0}
-          <div class="bar-col">
-            <div class="bar-track">
-              <span class:current={index === points.length - 1} style={`height:${height}%`}>
-                {#if index === points.length - 1 && point.amount > 0}
-                  <em class="bar-tooltip">{money(point.amount)}</em>
-                {/if}
-              </span>
-            </div>
-            <span class="bar-label">{point.label}</span>
-          </div>
+    {@const geo = chartGeometry(points, width)}
+    {@const line = smoothPath(geo.coords)}
+    {@const first = geo.coords[0]}
+    {@const last = geo.coords[geo.coords.length - 1]}
+    {@const area = `${line} L ${last.x.toFixed(2)} ${geo.baseY} L ${first.x.toFixed(2)} ${geo.baseY} Z`}
+    {@const labelStep = points.length <= 8 ? 1 : Math.ceil(points.length / 6)}
+    <svg class="chart-canvas" width={width} height={CHART_H} viewBox={`0 0 ${width} ${CHART_H}`} role="img" aria-label={trendTitle}>
+      <defs>
+        <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--chart-1)" stop-opacity="0.18" />
+          <stop offset="100%" stop-color="var(--chart-1)" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      <g class="chart-grid">
+        {#each [0, 0.33, 0.66, 1] as fraction}
+          <line x1={CHART_PAD.left} x2={width - CHART_PAD.right} y1={CHART_PAD.top + geo.innerH * fraction} y2={CHART_PAD.top + geo.innerH * fraction} />
         {/each}
+      </g>
+      <path class="chart-area" d={area} fill="url(#areaFill)" />
+      <path class="chart-line" d={line} />
+      {#if hoverTrend !== null && geo.coords[hoverTrend]}
+        <line class="chart-guide" x1={geo.coords[hoverTrend].x} x2={geo.coords[hoverTrend].x} y1={CHART_PAD.top - 6} y2={geo.baseY} />
+      {/if}
+      {#each geo.coords as coord, index}
+        <circle class="chart-dot" class:active={hoverTrend === index} cx={coord.x} cy={coord.y} r={hoverTrend === index ? 5 : 3} />
+      {/each}
+    </svg>
+    {#if hoverTrend !== null && geo.coords[hoverTrend]}
+      {@const coord = geo.coords[hoverTrend]}
+      <div class="chart-tooltip" style={`left:${coord.x}px; top:${coord.y}px; transform: translate(-50%, calc(-100% - 12px));`}>
+        <strong>{money(coord.amount)}</strong>
+        <span>{trendMode === 'daily' ? `${currentMonthLabel.split(' ')[0]} ${coord.label}` : coord.label}</span>
       </div>
+    {/if}
+    <div class="chart-labels" style={`height:16px;`}>
+      {#each geo.coords as coord, index}
+        {#if index % labelStep === 0 || index === geo.coords.length - 1}
+          <span style={`position:absolute; left:${coord.x}px; transform:translateX(-50%);`}>{coord.label}</span>
+        {/if}
+      {/each}
     </div>
   {:else}
-    {@render EmptyState({ title: 'No trend data yet', body: 'Monthly totals will appear here as you add expenses.' })}
+    {@render EmptyState({ title: 'No trend data yet', body: 'Spending totals will appear here as you add expenses.' })}
   {/if}
 {/snippet}
 
-{#snippet LineTrend({ points }: { points: CategoryTrend })}
-  {@const entries = Object.entries(points).filter(([, values]) => values.some((value) => value > 0))}
+{#snippet LineTrend({ entries, width }: { entries: [string, number[]][]; width: number })}
+  {@const H = 210}
+  {@const padL = 8}
+  {@const padR = 8}
+  {@const padT = 16}
+  {@const padB = 14}
   {@const longest = Math.max(0, ...entries.map(([, values]) => values.length))}
   {@const maxPoint = Math.max(1, ...entries.flatMap(([, values]) => values))}
-  {@const stride = longest > 1 ? (560 - 40) / (longest - 1) : 0}
-  <div class="line-trend">
-    {#if entries.length > 0 && longest > 0}
-      <svg viewBox="0 0 600 220" role="img" aria-label="Spending trend by category" preserveAspectRatio="none">
-        <g class="grid-lines">
-          {#each [20, 60, 100, 140, 180] as y}
-            <line x1="40" x2="560" y1={y} y2={y} />
-          {/each}
-        </g>
-        {#each entries as [slug, values]}
-          {@const item = category(slug)}
-          {@const path = values
-            .map((value, index) => `${40 + index * stride},${190 - (value / maxPoint) * 160}`)
-            .join(' ')}
-          <polyline points={path} fill="none" stroke={item.color} stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-          {#each values as v, i}
-            <circle cx={40 + i * stride} cy={190 - (v / maxPoint) * 160} r="3" fill={item.color} />
-          {/each}
-        {/each}
-      </svg>
-      <ul class="legend compact">
-        {#each entries as [slug]}
-          {@const item = category(slug)}
-          <li>
-            <span class="swatch" style={`background:${item.color};`}></span>
-            <span class="legend-name">{item.name}</span>
-          </li>
-        {/each}
-      </ul>
-    {:else}
-      {@render EmptyState({ title: 'No trend yet', body: 'Add expenses across months to compare category movement.' })}
-    {/if}
-  </div>
+  {@const innerW = Math.max(1, width - padL - padR)}
+  {@const innerH = H - padT - padB}
+  {@const stepX = longest > 1 ? innerW / (longest - 1) : 0}
+  <svg class="chart-canvas" width={width} height={H} viewBox={`0 0 ${width} ${H}`} role="img" aria-label="Spending trend by category">
+    <g class="chart-grid">
+      {#each [0, 0.25, 0.5, 0.75, 1] as fraction}
+        <line x1={padL} x2={width - padR} y1={padT + innerH * fraction} y2={padT + innerH * fraction} />
+      {/each}
+    </g>
+    {#each entries as [slug, values]}
+      {@const item = category(slug)}
+      {@const coords = values.map((value, index) => ({ x: padL + (longest > 1 ? index * stepX : innerW / 2), y: padT + innerH - (value / maxPoint) * innerH }))}
+      <path d={smoothPath(coords)} fill="none" stroke={item.color} stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style={`filter: drop-shadow(0 4px 10px ${item.color}55);`} />
+      {#each coords as coord}
+        <circle cx={coord.x} cy={coord.y} r="3" fill="var(--bg-2)" stroke={item.color} stroke-width="2" />
+      {/each}
+    {/each}
+  </svg>
 {/snippet}
 
 {#snippet SuggestedBudgets()}
