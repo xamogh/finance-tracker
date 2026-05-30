@@ -362,3 +362,125 @@ export const upsertBudget = mutation({
     return { ok: true };
   }
 });
+
+export const updateExpense = mutation({
+  args: {
+    expenseId: v.id('expenses'),
+    date: v.string(),
+    note: v.string(),
+    categorySlug: v.string(),
+    paidBy: v.union(v.literal('me'), v.literal('wife')),
+    amountCents: v.number()
+  },
+  handler: async (ctx, args) => {
+    const { membership } = await requireMembership(ctx);
+    const expense = await ctx.db.get(args.expenseId);
+
+    if (!expense || expense.householdId !== membership.householdId) {
+      throw new Error('Expense not found.');
+    }
+
+    const category = await categoryBySlug(ctx, membership.householdId, args.categorySlug);
+    if (!category) {
+      throw new Error('Unknown expense category.');
+    }
+
+    if (!Number.isFinite(args.amountCents) || Math.round(args.amountCents) <= 0) {
+      throw new Error('Enter an amount greater than $0.00.');
+    }
+
+    const paidBy = await ctx.db
+      .query('memberships')
+      .withIndex('by_household_member', (q) =>
+        q.eq('householdId', membership.householdId).eq('memberKey', args.paidBy)
+      )
+      .unique();
+
+    await ctx.db.patch(args.expenseId, {
+      categoryId: category._id,
+      paidByUserId: paidBy?.userId ?? expense.paidByUserId,
+      date: args.date,
+      note: args.note.trim(),
+      amountCents: Math.round(args.amountCents)
+    });
+
+    return { ok: true };
+  }
+});
+
+export const deleteExpense = mutation({
+  args: { expenseId: v.id('expenses') },
+  handler: async (ctx, args) => {
+    const { membership } = await requireMembership(ctx);
+    const expense = await ctx.db.get(args.expenseId);
+
+    if (!expense || expense.householdId !== membership.householdId) {
+      throw new Error('Expense not found.');
+    }
+
+    await ctx.db.delete(args.expenseId);
+    return { ok: true };
+  }
+});
+
+export const updateCategory = mutation({
+  args: {
+    categorySlug: v.string(),
+    name: v.string(),
+    icon: v.string(),
+    color: v.string()
+  },
+  handler: async (ctx, args) => {
+    const { membership } = await requireMembership(ctx);
+    const category = await categoryBySlug(ctx, membership.householdId, args.categorySlug);
+    if (!category) {
+      throw new Error('Category not found.');
+    }
+
+    const name = args.name.trim();
+    if (name.length < 2) {
+      throw new Error('Category name must be at least 2 characters.');
+    }
+    if (name.length > 40) {
+      throw new Error('Category name must be 40 characters or fewer.');
+    }
+    if (!CATEGORY_ICONS.has(args.icon)) {
+      throw new Error('Choose a valid category icon.');
+    }
+    assertHexColor(args.color);
+
+    // Slug stays stable so existing references keep resolving.
+    await ctx.db.patch(category._id, { name, icon: args.icon, color: args.color });
+    return { ok: true };
+  }
+});
+
+export const deleteCategory = mutation({
+  args: { categorySlug: v.string() },
+  handler: async (ctx, args) => {
+    const { membership } = await requireMembership(ctx);
+    const category = await categoryBySlug(ctx, membership.householdId, args.categorySlug);
+    if (!category) {
+      throw new Error('Category not found.');
+    }
+
+    const usedByExpense = await ctx.db
+      .query('expenses')
+      .withIndex('by_category', (q) => q.eq('categoryId', category._id))
+      .first();
+    if (usedByExpense) {
+      throw new Error('This category has expenses. Reassign or remove them before deleting it.');
+    }
+
+    const budgets = await ctx.db
+      .query('budgets')
+      .withIndex('by_category_month', (q) => q.eq('categoryId', category._id))
+      .collect();
+    for (const budget of budgets) {
+      await ctx.db.delete(budget._id);
+    }
+
+    await ctx.db.delete(category._id);
+    return { ok: true };
+  }
+});

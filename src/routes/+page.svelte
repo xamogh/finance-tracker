@@ -9,10 +9,12 @@
     ChevronRight,
     CircleEllipsis,
     Coins,
+    Copy,
     LayoutDashboard,
     LogIn,
     LogOut,
     Moon,
+    Pencil,
     PiggyBank,
     Plus,
     ReceiptText,
@@ -24,6 +26,7 @@
     Tag,
     Target,
     Ticket,
+    Trash2,
     TrendingDown,
     TrendingUp,
     User,
@@ -37,6 +40,7 @@
   import { browser } from '$app/environment';
   import { useConvexClient, useQuery } from 'convex-svelte';
   import { api } from '$convex/_generated/api.js';
+  import type { Id } from '$convex/_generated/dataModel';
   import { AUTH_CONTEXT, type AuthState } from '$lib/auth.svelte';
   import {
     categoryFor,
@@ -47,7 +51,6 @@
     totalsByCategory,
     type BudgetRow,
     type Category,
-    type CategoryTrend,
     type Expense,
     type MemberKey,
     type TrendPoint
@@ -58,14 +61,20 @@
 
   const today = new Date();
   const todayIso = localIsoDate(today);
-  const currentMonth = todayIso.slice(0, 7);
-  const currentMonthLabel = today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const todayMonth = todayIso.slice(0, 7);
+
+  let selectedMonth = $state(todayMonth);
+  const isCurrentMonth = $derived(selectedMonth === todayMonth);
+  const canGoNext = $derived(selectedMonth < todayMonth);
+  const selectedMonthLabel = $derived(
+    new Date(`${selectedMonth}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  );
 
   const auth = getContext<AuthState>(AUTH_CONTEXT);
   const convex = useConvexClient();
   const dashboard = useQuery(
     api.finance.dashboard,
-    () => (auth.signedIn && auth.userSynced ? { month: currentMonth } : 'skip'),
+    () => (auth.signedIn && auth.userSynced ? { month: selectedMonth } : 'skip'),
     { keepPreviousData: true }
   );
 
@@ -87,9 +96,20 @@
   let savingBudget = $state(false);
   let savingCategory = $state(false);
 
+  // edit + confirm state
+  let editingExpenseId = $state<string | null>(null);
+  let editingCategorySlug = $state<string | null>(null);
+  let confirmDialog = $state<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
+  let confirmBusy = $state(false);
+  let confirmError = $state('');
+
   // chart interaction state
   let trendW = $state(680);
-  let catTrendW = $state(680);
   let hoverTrend = $state<number | null>(null);
 
   let draft = $state({
@@ -202,7 +222,9 @@
 
   const trendData = $derived.by<TrendPoint[]>(() => dashboard.data?.trend ?? []);
   const dailyTrendData = $derived.by<TrendPoint[]>(() => {
-    const currentDay = Math.max(1, Number(todayIso.slice(8, 10)));
+    const [year, monthIndex] = selectedMonth.split('-').map(Number);
+    const lastDay = new Date(year, monthIndex, 0).getDate();
+    const daysToShow = isCurrentMonth ? Math.max(1, Number(todayIso.slice(8, 10))) : lastDay;
     const dailyTotals = new Map<string, number>();
 
     for (const expense of liveExpenses) {
@@ -212,9 +234,9 @@
       );
     }
 
-    return Array.from({ length: currentDay }, (_, index) => {
+    return Array.from({ length: daysToShow }, (_, index) => {
       const day = index + 1;
-      const date = `${currentMonth}-${String(day).padStart(2, '0')}`;
+      const date = `${selectedMonth}-${String(day).padStart(2, '0')}`;
       return {
         month: date,
         label: String(day),
@@ -226,12 +248,8 @@
   const trendTitle = $derived(trendMode === 'daily' ? 'Daily spend' : 'Monthly trend');
   const trendSubtitle = $derived(
     trendMode === 'daily'
-      ? `Each day in ${currentMonthLabel}`
+      ? `Each day in ${selectedMonthLabel}`
       : `Total spent over the last ${trendData.length || 6} months`
-  );
-  const categoryTrendData = $derived.by<CategoryTrend>(() => dashboard.data?.categoryTrend ?? {});
-  const categoryTrendEntries = $derived(
-    Object.entries(categoryTrendData).filter(([, values]) => values.some((value) => value > 0))
   );
   const spent = $derived(totalSpent(liveExpenses));
   const categoryTotals = $derived(totalsByCategory(liveExpenses, liveCategories));
@@ -255,9 +273,9 @@
   const onBudgetCount = $derived(liveBudgets.length - overBudget.length);
   const onBudgetPercent = $derived(hasBudgets ? Math.round((onBudgetCount / liveBudgets.length) * 100) : 0);
   const overBudgetPercent = $derived(hasBudgets ? Math.round((overBudget.length / liveBudgets.length) * 100) : 0);
-  const currentMonthTrend = $derived(trendData.at(-1)?.amount ?? spent);
+  const selectedMonthTrend = $derived(trendData.at(-1)?.amount ?? spent);
   const previousMonthTrend = $derived(trendData.at(-2)?.amount ?? 0);
-  const monthDelta = $derived(Number((currentMonthTrend - previousMonthTrend).toFixed(2)));
+  const monthDelta = $derived(Number((selectedMonthTrend - previousMonthTrend).toFixed(2)));
   const monthDeltaPercent = $derived(
     previousMonthTrend > 0 ? Math.round((monthDelta / previousMonthTrend) * 100) : 0
   );
@@ -374,9 +392,128 @@
   function setTab(tab: Tab) {
     activeTab = tab;
     hoverTrend = null;
-    if (tab !== 'expenses') addPanelOpen = false;
+    if (tab !== 'expenses') closeExpensePanel();
     if (tab !== 'budgets') budgetPanelOpen = false;
-    if (tab !== 'categories') categoryPanelOpen = false;
+    if (tab !== 'categories') closeCategoryPanel();
+  }
+
+  function shiftMonth(delta: number) {
+    const [year, monthIndex] = selectedMonth.split('-').map(Number);
+    const date = new Date(year, monthIndex - 1 + delta, 1);
+    const next = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    if (next > todayMonth) return; // don't navigate into the future
+    selectedMonth = next;
+    page = 1;
+    hoverTrend = null;
+  }
+
+  function goToCurrentMonth() {
+    selectedMonth = todayMonth;
+    page = 1;
+    hoverTrend = null;
+  }
+
+  function defaultExpenseDate() {
+    return isCurrentMonth ? todayIso : `${selectedMonth}-01`;
+  }
+
+  function closeExpensePanel() {
+    addPanelOpen = false;
+    editingExpenseId = null;
+    formError = '';
+  }
+
+  function closeCategoryPanel() {
+    categoryPanelOpen = false;
+    editingCategorySlug = null;
+    categoryError = '';
+  }
+
+  function openEditExpense(expense: Expense) {
+    activeTab = 'expenses';
+    budgetPanelOpen = false;
+    categoryPanelOpen = false;
+    formError = '';
+    editingExpenseId = expense.id;
+    draft = {
+      date: expense.date,
+      note: expense.note,
+      category: expense.category,
+      paidBy: expense.paidBy,
+      amount: expense.amount.toFixed(2)
+    };
+    addPanelOpen = true;
+  }
+
+  function openDuplicateExpense(expense: Expense) {
+    activeTab = 'expenses';
+    budgetPanelOpen = false;
+    categoryPanelOpen = false;
+    formError = '';
+    editingExpenseId = null;
+    draft = {
+      date: defaultExpenseDate(),
+      note: expense.note,
+      category: expense.category,
+      paidBy: expense.paidBy,
+      amount: expense.amount.toFixed(2)
+    };
+    addPanelOpen = true;
+  }
+
+  function openEditCategory(item: Category) {
+    activeTab = 'categories';
+    addPanelOpen = false;
+    budgetPanelOpen = false;
+    categoryError = '';
+    editingCategorySlug = item.slug;
+    categoryDraft = { name: item.name, icon: item.icon, color: item.color };
+    categoryPanelOpen = true;
+  }
+
+  function askDeleteExpense(expense: Expense) {
+    confirmError = '';
+    confirmDialog = {
+      title: 'Delete expense',
+      body: `Delete “${expense.note}” (${money(expense.amount)})? This can't be undone.`,
+      confirmLabel: 'Delete expense',
+      onConfirm: async () => {
+        await convex.mutation(api.finance.deleteExpense, {
+          expenseId: expense.id as Id<'expenses'>
+        });
+      }
+    };
+  }
+
+  function askDeleteCategory(item: Category) {
+    confirmError = '';
+    confirmDialog = {
+      title: 'Delete category',
+      body: `Delete the “${item.name}” category? Its budget will be removed. Categories that still have expenses can't be deleted.`,
+      confirmLabel: 'Delete category',
+      onConfirm: async () => {
+        await convex.mutation(api.finance.deleteCategory, { categorySlug: item.slug });
+      }
+    };
+  }
+
+  async function runConfirm() {
+    if (!confirmDialog) return;
+    confirmError = '';
+    try {
+      confirmBusy = true;
+      await confirmDialog.onConfirm();
+      confirmDialog = null;
+    } catch (error) {
+      confirmError = error instanceof Error ? error.message : 'Could not complete that action.';
+    } finally {
+      confirmBusy = false;
+    }
+  }
+
+  function cancelConfirm() {
+    confirmDialog = null;
+    confirmError = '';
   }
 
   function primaryAction() {
@@ -404,6 +541,14 @@
     budgetPanelOpen = false;
     categoryPanelOpen = false;
     formError = '';
+    editingExpenseId = null;
+    draft = {
+      date: defaultExpenseDate(),
+      note: '',
+      category: liveCategories[0]?.slug ?? '',
+      paidBy: 'me',
+      amount: ''
+    };
     addPanelOpen = true;
   }
 
@@ -426,6 +571,8 @@
     addPanelOpen = false;
     budgetPanelOpen = false;
     categoryError = '';
+    editingCategorySlug = null;
+    categoryDraft = { name: '', icon: 'circle-ellipsis', color: '#2563eb' };
     categoryPanelOpen = true;
   }
 
@@ -490,17 +637,32 @@
 
     try {
       saving = true;
+      const amountCents = Math.round(Number(draft.amount) * 100);
+
+      if (editingExpenseId) {
+        await convex.mutation(api.finance.updateExpense, {
+          expenseId: editingExpenseId as Id<'expenses'>,
+          date: draft.date,
+          note: draft.note,
+          categorySlug: draft.category,
+          paidBy: draft.paidBy,
+          amountCents
+        });
+        closeExpensePanel();
+        return;
+      }
+
       await convex.mutation(api.finance.addExpense, {
         date: draft.date,
         note: draft.note,
         categorySlug: draft.category,
         paidBy: draft.paidBy,
-        amountCents: Math.round(Number(draft.amount) * 100)
+        amountCents
       });
       draft.note = '';
       draft.amount = '';
       draft.category = '';
-      if (!addAnother) addPanelOpen = false;
+      if (!addAnother) closeExpensePanel();
     } catch (error) {
       formError = error instanceof Error ? error.message : 'Could not save this expense.';
     } finally {
@@ -526,17 +688,24 @@
 
     try {
       savingCategory = true;
-      await convex.mutation(api.finance.addCategory, {
-        name: categoryDraft.name,
-        icon: categoryDraft.icon,
-        color: categoryDraft.color
-      });
-      categoryDraft = {
-        name: '',
-        icon: 'circle-ellipsis',
-        color: '#7c8cff'
-      };
-      categoryPanelOpen = false;
+
+      if (editingCategorySlug) {
+        await convex.mutation(api.finance.updateCategory, {
+          categorySlug: editingCategorySlug,
+          name: categoryDraft.name,
+          icon: categoryDraft.icon,
+          color: categoryDraft.color
+        });
+      } else {
+        await convex.mutation(api.finance.addCategory, {
+          name: categoryDraft.name,
+          icon: categoryDraft.icon,
+          color: categoryDraft.color
+        });
+      }
+
+      categoryDraft = { name: '', icon: 'circle-ellipsis', color: '#2563eb' };
+      closeCategoryPanel();
     } catch (error) {
       categoryError = error instanceof Error ? error.message : 'Could not save this category.';
     } finally {
@@ -571,7 +740,7 @@
     try {
       savingBudget = true;
       await convex.mutation(api.finance.upsertBudget, {
-        month: currentMonth,
+        month: selectedMonth,
         categorySlug: budgetDraft.category,
         amountCents: Math.round(Number(budgetDraft.amount) * 100)
       });
@@ -588,6 +757,14 @@
     paidByFilter = 'all';
     queryText = '';
     page = 1;
+  }
+
+  function viewCategoryExpenses(slug: string) {
+    categoryFilter = slug;
+    paidByFilter = 'all';
+    queryText = '';
+    page = 1;
+    setTab('expenses');
   }
 
   function category(slug: string) {
@@ -613,9 +790,10 @@
 
   function handleKey(event: KeyboardEvent) {
     if (event.key === 'Escape') {
-      if (addPanelOpen) addPanelOpen = false;
+      if (confirmDialog) cancelConfirm();
+      else if (addPanelOpen) closeExpensePanel();
       else if (budgetPanelOpen) budgetPanelOpen = false;
-      else if (categoryPanelOpen) categoryPanelOpen = false;
+      else if (categoryPanelOpen) closeCategoryPanel();
       return;
     }
 
@@ -628,7 +806,12 @@
         target.isContentEditable);
     if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
 
-    if ((event.key === 'n' || event.key === 'N') && !isAuthScreen && auth.userSynced) {
+    if (
+      (event.key === 'n' || event.key === 'N') &&
+      !isAuthScreen &&
+      auth.userSynced &&
+      !confirmDialog
+    ) {
       if (!addPanelOpen && !budgetPanelOpen && !categoryPanelOpen) {
         event.preventDefault();
         primaryAction();
@@ -774,10 +957,21 @@
         <p>{tabMeta[activeTab].subtitle}</p>
       </div>
       <div class="topbar-actions">
-        <div class="month-pill" title="Current period">
-          <Calendar size={15} />
-          <span>{currentMonthLabel}</span>
+        <div class="month-nav">
+          <button class="icon-button" type="button" onclick={() => shiftMonth(-1)} aria-label="Previous month">
+            <ChevronLeft size={16} />
+          </button>
+          <div class="month-pill" title="Selected period">
+            <Calendar size={15} />
+            <span>{selectedMonthLabel}</span>
+          </div>
+          <button class="icon-button" type="button" onclick={() => shiftMonth(1)} disabled={!canGoNext} aria-label="Next month">
+            <ChevronRight size={16} />
+          </button>
         </div>
+        {#if !isCurrentMonth}
+          <button class="ghost-button" type="button" onclick={goToCurrentMonth}>This month</button>
+        {/if}
         {#if activeTab === 'budgets'}
           <button class="primary-button" type="button" disabled={!auth.userSynced} onclick={() => openBudgetPanel()}>
             <Target size={15} /> Set budget <span class="kbd">N</span>
@@ -837,14 +1031,14 @@
   </div>
 
   {#if addPanelOpen}
-    <button class="drawer-scrim" type="button" aria-label="Close add expense" onclick={() => (addPanelOpen = false)}></button>
+    <button class="drawer-scrim" type="button" aria-label="Close expense panel" onclick={closeExpensePanel}></button>
     <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="add-expense-title">
       <header class="drawer-head">
         <div>
-          <h2 id="add-expense-title">Add expense</h2>
-          <p>Logged to {currentMonthLabel}</p>
+          <h2 id="add-expense-title">{editingExpenseId ? 'Edit expense' : 'Add expense'}</h2>
+          <p>{editingExpenseId ? 'Update this entry' : `Logged to ${selectedMonthLabel}`}</p>
         </div>
-        <button class="icon-button" type="button" onclick={() => (addPanelOpen = false)} aria-label="Close">
+        <button class="icon-button" type="button" onclick={closeExpensePanel} aria-label="Close">
           <X size={18} />
         </button>
       </header>
@@ -876,7 +1070,7 @@
         {#if !hasCategories}
           <div class="form-callout">
             <p>No categories yet. Add one before recording expenses.</p>
-            <button class="ghost-button" type="button" onclick={() => { addPanelOpen = false; openCategoryPanel(); }}>
+            <button class="ghost-button" type="button" onclick={() => { closeExpensePanel(); openCategoryPanel(); }}>
               <Plus size={14} /> Add category
             </button>
           </div>
@@ -901,24 +1095,26 @@
         {#if formError}<p class="form-error">{formError}</p>{/if}
 
         <button class="primary-button block" type="submit" disabled={!canSaveExpense}>
-          {saving ? 'Saving…' : 'Save expense'}
+          {saving ? 'Saving…' : editingExpenseId ? 'Save changes' : 'Save expense'}
         </button>
-        <button class="ghost-button block" type="button" disabled={!canSaveExpense} onclick={() => saveExpense(true)}>
-          Save and add another
-        </button>
+        {#if !editingExpenseId}
+          <button class="ghost-button block" type="button" disabled={!canSaveExpense} onclick={() => saveExpense(true)}>
+            Save and add another
+          </button>
+        {/if}
       </form>
     </div>
   {/if}
 
   {#if categoryPanelOpen}
-    <button class="drawer-scrim" type="button" aria-label="Close add category" onclick={() => (categoryPanelOpen = false)}></button>
+    <button class="drawer-scrim" type="button" aria-label="Close category panel" onclick={closeCategoryPanel}></button>
     <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="add-category-title">
       <header class="drawer-head">
         <div>
-          <h2 id="add-category-title">Add category</h2>
+          <h2 id="add-category-title">{editingCategorySlug ? 'Edit category' : 'Add category'}</h2>
           <p>Available to both household members</p>
         </div>
-        <button class="icon-button" type="button" onclick={() => (categoryPanelOpen = false)} aria-label="Close">
+        <button class="icon-button" type="button" onclick={closeCategoryPanel} aria-label="Close">
           <X size={18} />
         </button>
       </header>
@@ -966,7 +1162,7 @@
         {#if categoryError}<p class="form-error">{categoryError}</p>{/if}
 
         <button class="primary-button block" type="submit" disabled={!canSaveCategory}>
-          {savingCategory ? 'Saving…' : 'Save category'}
+          {savingCategory ? 'Saving…' : editingCategorySlug ? 'Save changes' : 'Save category'}
         </button>
       </form>
     </div>
@@ -978,7 +1174,7 @@
       <header class="drawer-head">
         <div>
           <h2 id="set-budget-title">Set budget</h2>
-          <p>Applies to {currentMonthLabel}</p>
+          <p>Applies to {selectedMonthLabel}</p>
         </div>
         <button class="icon-button" type="button" onclick={() => (budgetPanelOpen = false)} aria-label="Close">
           <X size={18} />
@@ -1023,6 +1219,21 @@
           {savingBudget ? 'Saving…' : 'Save budget'}
         </button>
       </form>
+    </div>
+  {/if}
+
+  {#if confirmDialog}
+    <button class="drawer-scrim" type="button" aria-label="Cancel" onclick={cancelConfirm}></button>
+    <div class="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <h2 id="confirm-title">{confirmDialog.title}</h2>
+      <p>{confirmDialog.body}</p>
+      {#if confirmError}<p class="form-error">{confirmError}</p>{/if}
+      <div class="confirm-actions">
+        <button class="ghost-button" type="button" onclick={cancelConfirm} disabled={confirmBusy}>Cancel</button>
+        <button class="danger-button" type="button" onclick={runConfirm} disabled={confirmBusy}>
+          {confirmBusy ? 'Working…' : confirmDialog.confirmLabel}
+        </button>
+      </div>
     </div>
   {/if}
 </div>
@@ -1089,7 +1300,7 @@
       <header class="card-head">
         <div>
           <h2>By category</h2>
-          <p class="muted">Share of {currentMonthLabel} spend</p>
+          <p class="muted">Share of {selectedMonthLabel} spend</p>
         </div>
         <button class="link-button" type="button" onclick={() => setTab('categories')}>
           See all <ChevronRight size={13} />
@@ -1191,7 +1402,7 @@
 
 {#snippet ExpensesBlock()}
   <section class="kpi-grid two-up">
-    {@render KpiCard({ icon: Coins, feature: true, label: `Spent in ${currentMonthLabel}`, value: money(spent), foot: `${liveExpenses.length} entries` })}
+    {@render KpiCard({ icon: Coins, feature: true, label: `Spent in ${selectedMonthLabel}`, value: money(spent), foot: `${liveExpenses.length} entries` })}
     {@render KpiCard({ icon: SlidersHorizontal, label: 'After filters', value: money(totalSpent(filteredExpenses)), foot: `${filteredExpenses.length} matching` })}
   </section>
 
@@ -1230,7 +1441,7 @@
       <div class="table-wrap">
         <table class="data-table expenses-table">
           <thead>
-            <tr><th>Date</th><th>Note</th><th>Category</th><th>Paid by</th><th class="num">Amount</th></tr>
+            <tr><th>Date</th><th>Note</th><th>Category</th><th>Paid by</th><th class="num">Amount</th><th class="actions-col"></th></tr>
           </thead>
           <tbody>
             {#each pagedExpenses as expense}
@@ -1240,6 +1451,17 @@
                 <td>{@render CategoryPill({ category: category(expense.category) })}</td>
                 <td>{@render PaidPill({ paidBy: expense.paidBy })}</td>
                 <td class="num">{money(expense.amount)}</td>
+                <td class="row-actions">
+                  <button class="icon-button sm" type="button" title="Edit" aria-label="Edit expense" onclick={() => openEditExpense(expense)}>
+                    <Pencil size={15} />
+                  </button>
+                  <button class="icon-button sm" type="button" title="Duplicate" aria-label="Duplicate expense" onclick={() => openDuplicateExpense(expense)}>
+                    <Copy size={15} />
+                  </button>
+                  <button class="icon-button sm danger" type="button" title="Delete" aria-label="Delete expense" onclick={() => askDeleteExpense(expense)}>
+                    <Trash2 size={15} />
+                  </button>
+                </td>
               </tr>
             {/each}
           </tbody>
@@ -1313,16 +1535,29 @@
           {@const spentForCategory = categoryTotals.find((row) => row.category.slug === item.slug)?.amount ?? 0}
           {@const budgetForCategory = budgetRows.find((row) => row.category === item.slug)}
           <li>
-            <div class="lib-top">
+            <button
+              class="cat-open"
+              type="button"
+              title={`View ${item.name} expenses`}
+              onclick={() => viewCategoryExpenses(item.slug)}
+            >
               {@render CategoryPill({ category: item })}
-              <button class="row-action" type="button" onclick={() => openBudgetPanel(item.slug)}>
-                {budgetForCategory?.isSet ? 'Edit' : 'Set budget'}
+              <span class="lib-spent">{money(spentForCategory)}</span>
+              <span class="cat-sub">spent this month <ChevronRight size={12} /></span>
+            </button>
+            <div class="cat-actions">
+              <button class="icon-button sm" type="button" title="Edit category" aria-label="Edit category" onclick={() => openEditCategory(item)}>
+                <Pencil size={15} />
+              </button>
+              <button class="icon-button sm danger" type="button" title="Delete category" aria-label="Delete category" onclick={() => askDeleteCategory(item)}>
+                <Trash2 size={15} />
               </button>
             </div>
-            <span class="lib-spent">{money(spentForCategory)}</span>
-            <div class="lib-foot">
-              <span>spent this month</span>
-              <span>{budgetForCategory?.isSet ? `${money(budgetForCategory.budget)} budget` : 'No budget'}</span>
+            <div class="cat-foot">
+              <span>Budget</span>
+              <button class="row-action" type="button" onclick={() => openBudgetPanel(item.slug)}>
+                {budgetForCategory?.isSet ? money(budgetForCategory.budget) : 'Set budget'}
+              </button>
             </div>
           </li>
         {/each}
@@ -1334,80 +1569,6 @@
         action: 'Add category',
         onAction: openCategoryPanel
       })}
-    {/if}
-  </section>
-
-  <section class="grid-2">
-    <article class="card span-2">
-      <header class="card-head">
-        <div>
-          <h2>Spending by category</h2>
-          <p class="muted">{currentMonthLabel}</p>
-        </div>
-      </header>
-      {#if categoryTotals.length > 0}
-        <ul class="category-rows">
-          {#each categoryTotals as item}
-            {@const pct = categoryPercent(item.amount, spent)}
-            <li>
-              <div class="cat-head">
-                {@render CategoryPill({ category: item.category })}
-                <strong>{money(item.amount)}</strong>
-                <span class="pct" style={`color:${item.category.color}; background:${item.category.soft};`}>{pct}%</span>
-              </div>
-              <div class="rail">
-                <span style={`width:${pct}%; background:${item.category.color}; color:${item.category.color};`}></span>
-              </div>
-            </li>
-          {/each}
-        </ul>
-      {:else}
-        {@render EmptyState({ title: 'No spending yet', body: 'Category totals will update as expenses are added.' })}
-      {/if}
-    </article>
-
-    <article class="card">
-      <header class="card-head">
-        <div>
-          <h2>Distribution</h2>
-          <p class="muted">Share of total</p>
-        </div>
-      </header>
-      {#if categoryTotals.length > 0}
-        <div class="donut-row">
-          {@render Donut({ totals: categoryTotals, total: spent })}
-          {@render Legend({ totals: categoryTotals, total: spent, compact: true })}
-        </div>
-      {:else}
-        {@render EmptyState({ title: 'No distribution', body: 'Once spending arrives the donut will fill in.' })}
-      {/if}
-    </article>
-  </section>
-
-  <section class="card">
-    <header class="card-head">
-      <div>
-        <h2>Trend by category</h2>
-        <p class="muted">Last 6 months</p>
-      </div>
-    </header>
-    {#if categoryTrendEntries.length > 0}
-      <div class="line-trend">
-        <div class="chart" bind:clientWidth={catTrendW}>
-          {@render LineTrend({ entries: categoryTrendEntries, width: catTrendW })}
-        </div>
-        <ul class="legend compact">
-          {#each categoryTrendEntries as [slug]}
-            {@const item = category(slug)}
-            <li>
-              <span class="swatch" style={`background:${item.color}; color:${item.color};`}></span>
-              <span class="legend-name">{item.name}</span>
-            </li>
-          {/each}
-        </ul>
-      </div>
-    {:else}
-      {@render EmptyState({ title: 'No trend yet', body: 'Add expenses across months to compare category movement.' })}
     {/if}
   </section>
 {/snippet}
@@ -1422,7 +1583,7 @@
     <header class="card-head center">
       <div>
         <h2>Monthly budgets</h2>
-        <p class="muted">Limits and remaining balances for {currentMonthLabel}</p>
+        <p class="muted">Limits and remaining balances for {selectedMonthLabel}</p>
       </div>
       <button class="primary-button small" type="button" onclick={() => openBudgetPanel()}>
         <Plus size={14} /> Set budget
@@ -1685,7 +1846,7 @@
       {@const coord = geo.coords[hoverTrend]}
       <div class="chart-tooltip" style={`left:${coord.x}px; top:${coord.y}px; transform: translate(-50%, calc(-100% - 12px));`}>
         <strong>{money(coord.amount)}</strong>
-        <span>{trendMode === 'daily' ? `${currentMonthLabel.split(' ')[0]} ${coord.label}` : coord.label}</span>
+        <span>{trendMode === 'daily' ? `${selectedMonthLabel.split(' ')[0]} ${coord.label}` : coord.label}</span>
       </div>
     {/if}
     <div class="chart-labels" style={`height:16px;`}>
@@ -1698,34 +1859,6 @@
   {:else}
     {@render EmptyState({ title: 'No trend data yet', body: 'Spending totals will appear here as you add expenses.' })}
   {/if}
-{/snippet}
-
-{#snippet LineTrend({ entries, width }: { entries: [string, number[]][]; width: number })}
-  {@const H = 210}
-  {@const padL = 8}
-  {@const padR = 8}
-  {@const padT = 16}
-  {@const padB = 14}
-  {@const longest = Math.max(0, ...entries.map(([, values]) => values.length))}
-  {@const maxPoint = Math.max(1, ...entries.flatMap(([, values]) => values))}
-  {@const innerW = Math.max(1, width - padL - padR)}
-  {@const innerH = H - padT - padB}
-  {@const stepX = longest > 1 ? innerW / (longest - 1) : 0}
-  <svg class="chart-canvas" width={width} height={H} viewBox={`0 0 ${width} ${H}`} role="img" aria-label="Spending trend by category">
-    <g class="chart-grid">
-      {#each [0, 0.25, 0.5, 0.75, 1] as fraction}
-        <line x1={padL} x2={width - padR} y1={padT + innerH * fraction} y2={padT + innerH * fraction} />
-      {/each}
-    </g>
-    {#each entries as [slug, values]}
-      {@const item = category(slug)}
-      {@const coords = values.map((value, index) => ({ x: padL + (longest > 1 ? index * stepX : innerW / 2), y: padT + innerH - (value / maxPoint) * innerH }))}
-      <path d={smoothPath(coords)} fill="none" stroke={item.color} stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style={`filter: drop-shadow(0 4px 10px ${item.color}55);`} />
-      {#each coords as coord}
-        <circle cx={coord.x} cy={coord.y} r="3" fill="var(--bg-2)" stroke={item.color} stroke-width="2" />
-      {/each}
-    {/each}
-  </svg>
 {/snippet}
 
 {#snippet SuggestedBudgets()}

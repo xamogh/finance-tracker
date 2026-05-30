@@ -41,6 +41,7 @@
   --danger: #f87171;
   --danger-soft: rgba(248, 113, 113, 0.14);
   --danger-ink: #fca5a5;
+  --danger-solid: #dc2626;
   --warn: #fbbf24;
   --warn-soft: rgba(251, 191, 36, 0.14);
   --warn-ink: #fcd34d;
@@ -99,6 +100,7 @@
   --danger: #dc2626;
   --danger-soft: rgba(220, 38, 38, 0.1);
   --danger-ink: #b91c1c;
+  --danger-solid: #dc2626;
   --warn: #d97706;
   --warn-soft: rgba(217, 119, 6, 0.1);
   --warn-ink: #b45309;
@@ -1098,19 +1100,6 @@ code {
   color: var(--ink);
 }
 
-/* ---------------- Category line trend ---------------- */
-
-.line-trend {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
-  gap: 22px;
-  align-items: center;
-}
-
-.line-trend .chart-canvas {
-  height: 210px;
-}
-
 /* ---------------- Data tables ---------------- */
 
 .table-wrap {
@@ -1216,38 +1205,75 @@ code {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 12px;
 }
 
 .category-library li {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-2);
+  overflow: hidden;
+  transition: border-color 0.14s ease;
 }
 
-.category-library .lib-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+.category-library li:hover {
+  border-color: var(--line-strong);
 }
 
-.category-library .lib-spent {
+.cat-open {
+  flex: 1;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 16px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--ink);
+  border-radius: 0;
+  transition: background 0.14s ease;
+}
+
+.cat-open:hover {
+  background: var(--surface-hover);
+}
+
+.cat-open .lib-spent {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
 
-.category-library .lib-foot {
+.cat-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cat-actions {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cat-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  padding: 11px 14px 11px 16px;
+  border-top: 1px solid var(--line);
   font-size: 12.5px;
   color: var(--muted);
 }
@@ -1324,41 +1350,7 @@ code {
   background: var(--surface-3);
 }
 
-/* ---------------- Category rows + rails ---------------- */
-
-.category-rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 16px;
-}
-
-.category-rows li {
-  display: grid;
-  gap: 9px;
-}
-
-.cat-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 12px;
-}
-
-.cat-head strong {
-  font-size: 14px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.pct {
-  font-size: 11.5px;
-  font-weight: 600;
-  border-radius: var(--radius-xs);
-  padding: 3px 8px;
-  font-variant-numeric: tabular-nums;
-}
+/* ---------------- Rails ---------------- */
 
 .rail {
   position: relative;
@@ -1962,6 +1954,149 @@ code {
   font-weight: 500;
 }
 
+/* ---------------- Month navigation ---------------- */
+
+.month-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.month-nav .icon-button {
+  width: 34px;
+  height: 38px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+
+.month-nav .icon-button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.month-nav .icon-button:disabled {
+  opacity: 0.4;
+}
+
+.month-nav .month-pill {
+  min-width: 140px;
+  justify-content: center;
+}
+
+/* ---------------- Small icon buttons + row actions ---------------- */
+
+.icon-button.sm {
+  width: 30px;
+  height: 30px;
+}
+
+.icon-button.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: transparent;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.actions-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.data-table tbody tr .row-actions .icon-button {
+  opacity: 0;
+  transition: opacity 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+
+.data-table tbody tr:hover .row-actions .icon-button,
+.data-table tbody tr:focus-within .row-actions .icon-button {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .data-table tbody tr .row-actions .icon-button {
+    opacity: 1;
+  }
+}
+
+/* ---------------- Confirm dialog ---------------- */
+
+.confirm {
+  position: fixed;
+  z-index: 41;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(400px, calc(100vw - 32px));
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 22px;
+  display: grid;
+  gap: 10px;
+  animation: pop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -47%) scale(0.98);
+  }
+}
+
+.confirm h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.confirm p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--danger-solid);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: opacity 0.14s ease;
+}
+
+.danger-button:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.danger-button:disabled {
+  opacity: 0.5;
+}
+
 /* ---------------- Responsive ---------------- */
 
 @media (max-width: 1100px) {
@@ -1973,8 +2108,7 @@ code {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .grid-2,
-  .line-trend {
+  .grid-2 {
     grid-template-columns: minmax(0, 1fr);
   }
 
